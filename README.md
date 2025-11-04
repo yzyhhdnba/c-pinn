@@ -72,15 +72,21 @@ cmake --build . --parallel
 
 ### 运行示例/启动项目
 
-1. 构建完成后直接运行内置的 Poisson PINN 演示：
+1. 构建完成后可运行以下演示程序：
 
 	```bash
-	./examples/example_poisson
+	./examples/example_poisson        # 一维 Possion 方程，默认读取 config/pinn_config.json
+	./examples/example_advection      # 一维线性平流方程，默认读取 config/advection_config.json
+	./examples/example_burgers        # 一维粘性 Burgers 方程，默认读取 config/burgers_config.json
 	```
 
 	程序会自动检测 GPU：若当前 LibTorch 为 CUDA 版且显卡可用，将把模型与数据迁移到 GPU；否则自动回退到 CPU。首次运行需等待数秒完成首个 epoch。
 
-2. 如需调整网络规模、采样数量或训练轮数，可编辑 `config/pinn_config.json`，其中默认配置已匹配 GPU 友好的轻量级设置：
+	- `example_poisson`：求解 $u''(x)+\pi^2\sin(\pi x)=0$，边界条件 $u(0)=u(1)=0$，示例配置强调快速收敛。
+	- `example_advection`：求解 $u_t + c\,u_x = 0$，初值/边界沿用解析解 $\sin(\pi[x-ct])$，可在配置中通过 `pde.velocity` 控制传播速度。
+	- `example_burgers`：求解粘性 Burgers 方程 $u_t + u\,u_x - \nu u_{xx} = f(x,t)$，默认粘性 `pde.nu=0.01`，强制项与边界采用解析表达式便于验证。
+
+2. 如需调整网络规模、采样数量或训练轮数，可编辑对应的配置文件（Poisson -> `config/pinn_config.json`，Advection -> `config/advection_config.json`，Burgers -> `config/burgers_config.json`）。默认示例均给出了 GPU 友好的轻量级参数：
 
 	```json
 	{
@@ -90,7 +96,17 @@ cmake --build . --parallel
 	}
 	```
 
-	后续代码将把该配置与训练器串联，实现完全配置化启动。
+	`examples/*` 程序会优先读取命令行参数指定的路径，其次查找环境变量 `PINN_CONFIG`，若均未指定则使用默认文件。例如：
+
+	```bash
+	# 使用自定义配置启动 Burgers 示例
+	./examples/example_burgers ../my_configs/burgers_fine.json
+
+	# 或通过环境变量指定配置
+	PINN_CONFIG=../my_configs/advection_fast.json ./examples/example_advection
+	```
+
+	后续代码将把配置解析结果与训练器串联，实现完全配置化启动。
 
 3. 若要自行扩展任务，可以：
 	- 在 `examples/` 目录中添加新的方程案例；
