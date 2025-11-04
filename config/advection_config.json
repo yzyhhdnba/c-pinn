@@ -1,0 +1,41 @@
+{
+  "model": {
+    "input_dim": 2,
+    "output_dim": 1,
+    "layers": [
+      40,
+      40,
+      40
+    ],
+    "activation": "tanh",
+    "weight_init": "xavier_uniform",
+    "bias_init": 0.0,
+    "seed": 123
+  },
+  "training": {
+    "optimizer": "adam",
+    "lr": 0.001,
+    "batch_size": 512,
+    "epochs": 300,
+    "lr_schedule": {
+      "type": "none"
+    }
+  },
+  "data": {
+    "n_interior": 96,
+    "n_boundary": 24,
+    "sampling": "latin_hypercube"
+  },
+  "pde": {
+    "velocity": 1.0
+  },
+  "ad": {
+    "backend": "libtorch",
+    "mode": "reverse",
+    "max_tape_size_mb": 1024
+  },
+  "checkpoint": {
+    "dir": "./ckpt",
+    "save_every": 500
+  }
+}
