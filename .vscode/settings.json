@@ -1,0 +1,12 @@
+{
+    "inlineChat.notebookAgent": true,
+    "chat.agent.maxRequests": 100,
+    "remote.extensionKind": {
+    "GitHub.copilot": [
+      "ui"
+    ],
+    "GitHub.copilot-chat": [
+      "ui"
+    ],
+  },
+}
