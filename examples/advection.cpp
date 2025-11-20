@@ -108,11 +108,25 @@ int main(int argc, char** argv) {
     layers.insert(layers.end(), config.network.hidden_layers.begin(), config.network.hidden_layers.end());
     layers.push_back(config.network.output_dim);
 
+    nn::ArchitectureConfig arch_config;
+    arch_config.architecture = nn::architecture_from_string(config.network.architecture);
+    arch_config.resnet_blocks = config.network.resnet_blocks;
+    arch_config.cnn_channels = config.network.cnn_channels;
+    arch_config.cnn_layers = config.network.cnn_layers;
+    arch_config.cnn_kernel_size = config.network.cnn_kernel_size;
+    arch_config.transformer_heads = config.network.transformer_heads;
+    arch_config.transformer_layers = config.network.transformer_layers;
+    arch_config.transformer_ffn_dim = config.network.transformer_ffn_dim;
+    arch_config.transformer_embed_dim = config.network.transformer_embed_dim;
+    arch_config.use_adaptive_activation = config.network.adaptive_activation;
+    arch_config.adaptive_activation_init = config.network.adaptive_activation_init;
+
     auto network = std::make_shared<nn::Fnn>(layers,
                                              nn::activation_from_string(config.network.activation),
                                              nn::init_from_string(config.network.weight_init),
                                              static_cast<Scalar>(config.network.bias_init),
-                                             seed);
+                                             seed,
+                                             arch_config);
     (*network)->to(torch::kFloat);
     (*network)->to(device);
 
@@ -131,6 +145,11 @@ int main(int argc, char** argv) {
     options.schedule.milestones = config.training.milestones;
     options.schedule.gamma = static_cast<Scalar>(config.training.gamma);
     options.schedule.switch_to_lbfgs_epoch = config.training.use_lbfgs_after;
+    options.rar.enabled = config.training.rar_enabled;
+    options.rar.candidate_pool = config.training.rar_candidate_pool;
+    options.rar.select_count = config.training.rar_topk;
+    options.rar.apply_every = config.training.rar_frequency;
+    options.rar.sampling_strategy = geometry::sampling_strategy_from_string(config.training.rar_sampling);
 
     utils::CallbackRegistry callbacks;
     struct PrintCallback : utils::Callback {

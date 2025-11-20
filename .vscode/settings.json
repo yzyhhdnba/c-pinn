@@ -9,4 +9,8 @@
       "ui"
     ],
   },
+  "files.associations": {
+    "__locale": "cpp",
+    "ios": "cpp"
+  },
 }

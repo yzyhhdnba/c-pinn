@@ -25,16 +25,15 @@ Tensor sample_interval_boundary(const Interval& interval, int n_points) {
 }
 
 Tensor sample_rectangle_boundary(const Rectangle& rectangle, int n_points, torch::Generator& gen) {
-    (void)gen;
     const int dim = rectangle.dimension();
     auto lower_upper = rectangle.bounds();
     auto lower = lower_upper.first;
     auto upper = lower_upper.second;
     auto opts = torch::dtype(torch::kDouble);
-    auto points = torch::zeros({n_points, dim}, opts);
-    auto rand = torch::rand({n_points, dim}, opts);
+    auto points = torch::zeros({n_points, dim}, torch::dtype(torch::kDouble));
+    auto rand = torch::rand({n_points, dim}, gen, opts);
     points = rand * (upper - lower) + lower;
-    auto faces = torch::randint(0, dim * 2, {n_points}, torch::dtype(torch::kLong));
+    auto faces = torch::randint(0, dim * 2, {n_points}, gen, torch::dtype(torch::kLong));
     for (int i = 0; i < n_points; ++i) {
         const int face = faces[i].item<int>();
         const int axis = face / 2;

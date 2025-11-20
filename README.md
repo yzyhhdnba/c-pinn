@@ -1,15 +1,176 @@
-# C++ 物理信息神经网络框架
+# C++ 物理信息神经网络 (PINN) 框架
 
-本项目使用现代 C++17 配合 LibTorch 自动微分与优化，复刻 DeepXDE 的核心 PINN 功能。
+本项目是一个基于现代 C++17 和 LibTorch 的高性能物理信息神经网络（Physics-Informed Neural Networks, PINN）框架。它旨在复刻并扩展 DeepXDE 的核心功能，提供从几何建模、PDE 定义到模型训练与可视化的全套解决方案。
 
-## 模块概览
+## ✨ 核心特性
 
-- `geometry`：几何域表示、采样策略、CSG 操作。
-- `pde`：偏微分方程残差定义、边界/初始条件、运行时 PDE 解析器。
-- `nn`：前馈/残差网络结构、激活与初始化、LibTorch 集成。
-- `loss`：残差、边界、数据损失计算与权重管理。
-- `model`：模型拼装、训练循环、优化器调度、断点保存。
-- `utils`：配置解析、回调、指标、日志。
+- **多后端支持**：基于 LibTorch，支持 CPU 和 CUDA 加速（自动检测）。
+- **丰富的网络架构**：
+  - **FNN** (全连接网络)
+  - **ResNet** / **ModifiedResNet** (残差网络)
+  - **CNN** (卷积神经网络，支持 1D/2D/3D)
+  - **Transformer** (自注意力机制)
+- **先进的激活函数**：
+  - 基础：`tanh`, `sigmoid`, `relu`, `leaky_relu`, `gelu`, `swish`, `silu`
+  - 自适应：`adaptive_tanh`, `adaptive_sigmoid`, `rowdy`, `l_lcaf` (Layer-wise Locally Adaptive Activation Functions)
+- **高级训练策略**：
+  - **RAR** (Residual-based Adaptive Refinement)：基于残差的自适应加点策略，自动提升难点区域的精度。
+  - **L-BFGS**：支持二阶优化器微调。
+  - **学习率调度**：StepLR, ExponentialLR 等。
+- **边界条件**：
+  - Dirichlet, Neumann, Robin
+  - **PeriodicBC** (周期性边界条件)
+- **几何与采样**：
+  - 支持区间、矩形等基础几何。
+  - 支持 Latin Hypercube Sampling (LHS)、Grid、Random 等采样策略。
+
+## 🚀 快速上手
+
+### 1. 环境准备
+
+请确保您的系统已安装以下依赖：
+
+- **C++ 编译器**：支持 C++17 (GCC >= 9, Clang >= 11, MSVC >= 19.28)
+- **CMake**：>= 3.15
+- **LibTorch**：C++ 版 PyTorch (建议 2.0+)
+- **Eigen3**：线性代数库
+- **nlohmann_json**：JSON 解析库
+- **OpenMP** (可选，推荐)：用于并行加速
+
+#### macOS (Apple Silicon)
+
+```bash
+# 安装基础依赖
+brew install cmake eigen nlohmann-json libomp
+
+# 下载 LibTorch (CPU 版)
+wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.5.1.zip
+unzip libtorch-shared-with-deps-2.5.1.zip
+export LIBTORCH_PATH=$(pwd)/libtorch
+```
+
+#### Linux (Ubuntu)
+
+```bash
+sudo apt-get install cmake libeigen3-dev nlohmann-json3-dev
+
+# 下载 LibTorch (CUDA 版，请根据显卡选择版本)
+wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.5.1%2Bcu118.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.5.1+cu118.zip
+export LIBTORCH_PATH=$(pwd)/libtorch
+```
+
+### 2. 编译项目
+
+```bash
+mkdir build
+cd build
+
+# 配置 CMake (需指定 LibTorch 路径)
+cmake -DCMAKE_PREFIX_PATH=$LIBTORCH_PATH ..
+
+# 编译 (使用多核)
+cmake --build . --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu)
+```
+
+### 3. 运行示例
+
+编译完成后，可执行文件位于 `build/examples/` 目录。
+
+**Burgers 方程示例**：
+
+```bash
+# 运行 Burgers 方程求解
+./build/examples/example_burgers config/burgers_config.json
+```
+
+程序将在 `sandbox/burgers/` 目录下生成训练过程的 CSV 文件（包含预测值、真实值和误差）。
+
+## ⚙️ 配置说明
+
+项目使用 JSON 文件进行配置，支持覆盖默认参数。
+
+### 配置文件结构 (`config/burgers_config.json` 示例)
+
+```json
+{
+  "model": {
+    "input_dim": 2,
+    "output_dim": 1,
+    "layers": [64, 64, 64, 64],
+    "activation": "tanh",          // 支持 "adaptive_tanh", "swish" 等
+    "architecture": "fnn",         // 可选: "fnn", "resnet", "modified_resnet", "transformer"
+    "weight_init": "xavier_uniform"
+  },
+  "training": {
+    "optimizer": "adam",
+    "lr": 0.001,
+    "epochs": 1000,
+    "rar_enabled": true,           // 启用 RAR 自适应加点
+    "rar_frequency": 100,          // 每 100 epoch 加一次点
+    "rar_topk": 100                // 每次添加残差最大的 100 个点
+  },
+  "data": {
+    "n_interior": 2000,
+    "n_boundary": 500,
+    "sampling": "latin_hypercube"
+  },
+  "pde": {
+    "nu": 0.01                     // PDE 特定参数
+  }
+}
+```
+
+### 命令行参数
+
+配置文件的加载优先级：
+1. 命令行参数：`./exe path/to/config.json`
+2. 环境变量：`PINN_CONFIG=path/to/config.json ./exe`
+3. 默认路径：`config/<name>_config.json`
+
+## 📊 可视化
+
+训练过程中生成的 CSV 文件可以使用 Python 脚本进行绘图：
+
+```bash
+# 安装绘图依赖
+pip install matplotlib pandas numpy
+
+# 绘制结果
+python scripts/plot_csv.py sandbox/burgers/burgers_epoch_00100.csv --output result.png
+```
+
+## 📂 目录结构
+
+```
+.
+├── CMakeLists.txt          # 构建脚本
+├── config/                 # 配置文件
+├── examples/               # 示例代码 (Burgers, Poisson, Advection)
+├── include/pinn/           # 头文件
+│   ├── geometry/           # 几何定义
+│   ├── loss/               # 损失函数
+│   ├── model/              # 模型与训练器
+│   ├── nn/                 # 神经网络架构
+│   └── pde/                # PDE 定义与边界条件
+├── src/                    # 源代码
+└── scripts/                # 辅助脚本
+```
+
+## 🛠️ 常见问题
+
+1. **`dyld: Library not loaded` (macOS)**:
+   - 确保 `libomp` 已安装 (`brew install libomp`)。
+   - 确保 LibTorch 的库路径已添加到 `DYLD_LIBRARY_PATH` (虽然 CMake RPATH 通常会处理好)。
+
+2. **内存不足 (OOM)**:
+   - 减小 `batch_size` 或 `n_interior`。
+   - 减小网络规模 (`layers`)。
+   - 在 macOS 上，注意 LibTorch CPU 版的内存占用。
+
+3. **CMake 找不到 Torch**:
+   - 确保 `CMAKE_PREFIX_PATH` 正确指向解压后的 `libtorch` 目录。
+
 
 ## 快速上手
 

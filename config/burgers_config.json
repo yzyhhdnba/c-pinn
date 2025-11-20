@@ -16,16 +16,16 @@
   "training": {
     "optimizer": "adam",
     "lr": 0.001,
-    "batch_size": 1024,
-    "epochs": 400,
+    "batch_size": 16,
+    "epochs": 100,
     "lr_schedule": {
       "type": "none"
     },
     "use_lbfgs_after": -1
   },
   "data": {
-    "n_interior": 4096,
-    "n_boundary": 1024,
+    "n_interior": 1000,
+    "n_boundary": 200,
     "sampling": "latin_hypercube"
   },
   "pde": {

@@ -3,6 +3,7 @@
 #include <functional>
 
 #include "pinn/geometry/geometry.hpp"
+#include "pinn/nn/fnn.hpp"
 #include "pinn/types.hpp"
 
 namespace pinn::pde {
@@ -14,7 +15,7 @@ class BoundaryCondition {
 
     const geometry::Geometry& geometry() const { return geometry_; }
 
-    virtual Tensor loss(const Tensor& points, const Tensor& predicted) const = 0;
+    virtual Tensor loss(nn::Fnn& network, const Tensor& points, const Tensor& predicted) const = 0;
 
   protected:
     const geometry::Geometry& geometry_;
@@ -26,7 +27,7 @@ class DirichletBC : public BoundaryCondition {
 
     DirichletBC(const geometry::Geometry& geom, ValueFunction value_fn);
 
-    Tensor loss(const Tensor& points, const Tensor& predicted) const override;
+    Tensor loss(nn::Fnn& network, const Tensor& points, const Tensor& predicted) const override;
 
   private:
     ValueFunction value_fn_;
@@ -38,10 +39,23 @@ class NeumannBC : public BoundaryCondition {
 
     NeumannBC(const geometry::Geometry& geom, FluxFunction flux_fn);
 
-    Tensor loss(const Tensor& points, const Tensor& predicted) const override;
+    Tensor loss(nn::Fnn& network, const Tensor& points, const Tensor& predicted) const override;
 
   private:
     FluxFunction flux_fn_;
+};
+
+class PeriodicBC : public BoundaryCondition {
+  public:
+    using MappingFunction = std::function<Tensor(const Tensor&)>;
+
+    PeriodicBC(const geometry::Geometry& geom, MappingFunction mapping_fn, Scalar weight = 1.0);
+
+    Tensor loss(nn::Fnn& network, const Tensor& points, const Tensor& predicted) const override;
+
+  private:
+    MappingFunction mapping_fn_;
+    Scalar weight_;
 };
 
 }  // namespace pinn::pde

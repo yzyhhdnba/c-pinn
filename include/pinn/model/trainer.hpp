@@ -6,14 +6,10 @@
 
 #include <torch/torch.h>
 
+#include "pinn/geometry/sampling.hpp"
 #include "pinn/model/model.hpp"
 #include "pinn/types.hpp"
 #include "pinn/utils/callback.hpp"
-
-namespace pinn::geometry {
-class Geometry;
-enum class SamplingStrategy;
-}  // namespace pinn::geometry
 
 namespace pinn::model {
 
@@ -24,6 +20,14 @@ struct OptimizerSchedule {
     Scalar gamma{0.1};
     int switch_to_lbfgs_epoch{-1};
     Scalar gradient_clip_norm{1.0};
+};
+
+struct RarOptions {
+  bool enabled{false};
+  int candidate_pool{0};
+  int select_count{0};
+  int apply_every{10};
+  geometry::SamplingStrategy sampling_strategy{geometry::SamplingStrategy::kLatinHypercube};
 };
 
 struct TrainingOptions {
@@ -38,6 +42,8 @@ struct TrainingOptions {
     bool resample_every_epoch{false};
     int n_interior_points{0};
     int n_boundary_points{0};
+
+    RarOptions rar{};
 };
 
 // 采样函数类型定义
@@ -58,12 +64,18 @@ class Trainer {
 
   private:
     void configure_optimizers();
+    Tensor select_rar_points(torch::Generator& generator, const torch::Device& device);
+    void maybe_apply_rar(TrainingBatch& batch,
+                         int epoch,
+                         torch::Generator& generator,
+                         const torch::Device& device);
 
     Model& model_;
     TrainingOptions options_;
     std::unique_ptr<torch::optim::Optimizer> optimizer_;
     std::unique_ptr<torch::optim::Optimizer> lbfgs_optimizer_;
     bool optimizers_ready_{false};
+    Tensor rar_buffer_;
 };
 
 }  // namespace pinn::model

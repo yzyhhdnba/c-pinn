@@ -1,11 +1,13 @@
 #include "pinn/model/trainer.hpp"
 
 #include <algorithm>
+#include <tuple>
 #include <unordered_set>
 
 #include <torch/nn/utils/clip_grad.h>
 #include <torch/torch.h>
 
+#include "pinn/geometry/sampling.hpp"
 #include "pinn/loss/loss_terms.hpp"
 #include "pinn/utils/callback.hpp"
 #include "pinn/utils/logger.hpp"
@@ -28,6 +30,72 @@ void Trainer::configure_optimizers() {
     }
 
     optimizers_ready_ = true;
+}
+
+Tensor Trainer::select_rar_points(torch::Generator& generator, const torch::Device& device) {
+    const auto& rar = options_.rar;
+    if (!rar.enabled || rar.candidate_pool <= 0 || rar.select_count <= 0) {
+        return {};
+    }
+
+    auto& domain = model_.pde().domain();
+    auto candidates = geometry::sample_interior(domain, rar.candidate_pool, rar.sampling_strategy, generator);
+    if (!candidates.defined() || candidates.numel() == 0) {
+        return {};
+    }
+
+    auto tensor_opts = torch::TensorOptions().dtype(torch::kFloat).device(device);
+    candidates = candidates.to(tensor_opts);
+
+    auto residuals = loss::compute_pde_residual(model_.pde(), model_.network(), candidates);
+    auto residual_norm = torch::abs(residuals).detach();
+    if (residual_norm.dim() > 1) {
+        residual_norm = residual_norm.norm(2, 1);
+    } else {
+        residual_norm = residual_norm.reshape({-1});
+    }
+    if (residual_norm.numel() == 0) {
+        return {};
+    }
+
+    const int select = std::min(rar.select_count, static_cast<int>(residual_norm.size(0)));
+    if (select <= 0) {
+        return {};
+    }
+
+    auto topk = residual_norm.topk(select, 0, true, true);
+    auto indices = std::get<1>(topk);
+    return candidates.index_select(0, indices);
+}
+
+void Trainer::maybe_apply_rar(TrainingBatch& batch,
+                              int epoch,
+                              torch::Generator& generator,
+                              const torch::Device& device) {
+    const auto& rar = options_.rar;
+    if (!rar.enabled || rar.candidate_pool <= 0 || rar.select_count <= 0) {
+        return;
+    }
+
+    const int frequency = (rar.apply_every <= 0) ? 1 : rar.apply_every;
+    if (epoch % frequency == 0) {
+        auto rar_points = select_rar_points(generator, device);
+        if (rar_points.defined() && rar_points.numel() > 0) {
+            if (rar_buffer_.defined() && rar_buffer_.numel() > 0) {
+                rar_buffer_ = torch::cat({rar_buffer_, rar_points}, 0);
+            } else {
+                rar_buffer_ = rar_points;
+            }
+        }
+    }
+
+    if (rar_buffer_.defined() && rar_buffer_.numel() > 0) {
+        if (batch.interior_points.defined() && batch.interior_points.numel() > 0) {
+            batch.interior_points = torch::cat({batch.interior_points, rar_buffer_}, 0);
+        } else {
+            batch.interior_points = rar_buffer_;
+        }
+    }
 }
 
 void Trainer::fit(const TrainingBatch& batch, utils::CallbackRegistry& callbacks) {
@@ -127,6 +195,7 @@ void Trainer::fit_with_resampling(SamplingFunction sampler,
 
         // 每个 epoch 重新采样
         auto batch = sampler(device, generator);
+        maybe_apply_rar(batch, epoch, generator, device);
         
         const int n_interior = batch.interior_points.size(0);
         const int n_boundary = batch.boundary_points.defined() ? batch.boundary_points.size(0) : 0;

@@ -95,15 +95,7 @@ target_link_libraries(pinn
         Eigen3::Eigen
 )
 
-if(TORCH_CUDA_LIBRARY)
-    target_link_libraries(pinn PUBLIC ${TORCH_CUDA_LIBRARY})
-    if(TORCH_CUDA_LIBRARY)
-        target_link_options(pinn PRIVATE "-Wl,--no-as-needed")
-        target_link_libraries(pinn PUBLIC ${TORCH_CUDA_LIBRARY})
-        if(TORCH_C10_CUDA_LIBRARY)
-            target_link_libraries(pinn PUBLIC ${TORCH_C10_CUDA_LIBRARY})
-        endif()
-    endif()
+if(PINN_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 

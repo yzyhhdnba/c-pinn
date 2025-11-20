@@ -1,5 +1,6 @@
 build/
 sandbox/
+.vscode/
 # Poisson related images
 # Ignore images stored in sandbox/poisson
 sandbox/poisson/*.png

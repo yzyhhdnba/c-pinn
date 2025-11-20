@@ -39,11 +39,27 @@ Tensor compute_hessian(const Tensor& outputs, Tensor inputs) {
     return hessian;
 }
 
-Tensor compute_boundary_loss(const pde::BoundaryCondition& bc, const Tensor& points, const Tensor& predictions) {
-    return bc.loss(points, predictions);
+Tensor compute_boundary_loss(const pde::BoundaryCondition& bc,
+                             nn::Fnn& network,
+                             const Tensor& points,
+                             const Tensor& predictions) {
+    return bc.loss(network, points, predictions);
 }
 
 }  // namespace
+
+Tensor compute_pde_residual(const pde::Pde& pde,
+                            nn::Fnn& network,
+                            const Tensor& interior_points) {
+    auto inputs = interior_points.clone();
+    inputs.set_requires_grad(true);
+    auto predictions = network->forward(inputs);
+    auto gradients = compute_gradients(predictions, inputs);
+    auto hessian = compute_hessian(predictions, inputs);
+
+    pde::DifferentialData data{inputs, predictions, gradients, hessian};
+    return pde.evaluate(data);
+}
 
 LossBreakdown compute_losses(const pde::Pde& pde,
                              const std::vector<std::shared_ptr<pde::BoundaryCondition>>& boundary_conditions,
@@ -56,30 +72,31 @@ LossBreakdown compute_losses(const pde::Pde& pde,
                              Scalar data_weight) {
     LossBreakdown breakdown;
 
-    auto inputs = interior_points.clone();
-    inputs.set_requires_grad(true);
-    auto predictions = network->forward(inputs);
-    auto gradients = compute_gradients(predictions, inputs);
-    auto hessian = compute_hessian(predictions, inputs);
-
-    pde::DifferentialData data{inputs, predictions, gradients, hessian};
-    auto residual = pde.evaluate(data);
+    auto residual = compute_pde_residual(pde, network, interior_points);
     breakdown.pde_loss = torch::mean(torch::pow(residual, 2));
 
-    Tensor boundary_loss = torch::zeros({}, predictions.options());
+    Tensor boundary_loss = torch::zeros({}, residual.options());
+    Tensor boundary_predictions;
     if (!boundary_conditions.empty() && boundary_points.numel() > 0) {
-        auto boundary_predictions = network->forward(boundary_points);
+        // Ensure boundary points track gradients for Neumann/Robin BCs
+        if (!boundary_points.requires_grad()) {
+            boundary_points.set_requires_grad(true);
+        }
+        boundary_predictions = network->forward(boundary_points);
         for (const auto& bc : boundary_conditions) {
-            boundary_loss += compute_boundary_loss(*bc, boundary_points, boundary_predictions);
+            boundary_loss += compute_boundary_loss(*bc, network, boundary_points, boundary_predictions);
         }
         boundary_loss = boundary_loss / static_cast<double>(boundary_conditions.size());
     }
     breakdown.boundary_loss = boundary_loss;
 
     if (boundary_targets.defined() && boundary_targets.numel() > 0) {
-        breakdown.data_loss = torch::mse_loss(network->forward(boundary_points), boundary_targets, torch::Reduction::Mean);
+        if (!boundary_predictions.defined()) {
+            boundary_predictions = network->forward(boundary_points);
+        }
+        breakdown.data_loss = torch::mse_loss(boundary_predictions, boundary_targets, torch::Reduction::Mean);
     } else {
-        breakdown.data_loss = torch::zeros({}, predictions.options());
+        breakdown.data_loss = torch::zeros({}, residual.options());
     }
 
     breakdown.total_loss = pde_weight * breakdown.pde_loss + boundary_weight * breakdown.boundary_loss +

@@ -27,4 +27,8 @@ LossBreakdown compute_losses(const pde::Pde& pde,
                              Scalar boundary_weight,
                              Scalar data_weight);
 
+Tensor compute_pde_residual(const pde::Pde& pde,
+                            nn::Fnn& network,
+                            const Tensor& interior_points);
+
 }  // namespace pinn::loss

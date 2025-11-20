@@ -62,6 +62,17 @@ ConfigBundle load_config(const std::filesystem::path& path) {
         bundle.network.weight_init = read_optional_string(model, "weight_init", bundle.network.weight_init);
         bundle.network.bias_init = model.value("bias_init", bundle.network.bias_init);
         bundle.network.seed = model.value("seed", bundle.network.seed);
+        bundle.network.architecture = read_optional_string(model, "architecture", bundle.network.architecture);
+        bundle.network.resnet_blocks = model.value("resnet_blocks", bundle.network.resnet_blocks);
+        bundle.network.cnn_channels = model.value("cnn_channels", bundle.network.cnn_channels);
+        bundle.network.cnn_layers = model.value("cnn_layers", bundle.network.cnn_layers);
+        bundle.network.cnn_kernel_size = model.value("cnn_kernel_size", bundle.network.cnn_kernel_size);
+        bundle.network.transformer_heads = model.value("transformer_heads", bundle.network.transformer_heads);
+        bundle.network.transformer_layers = model.value("transformer_layers", bundle.network.transformer_layers);
+        bundle.network.transformer_ffn_dim = model.value("transformer_ffn_dim", bundle.network.transformer_ffn_dim);
+        bundle.network.transformer_embed_dim = model.value("transformer_embed_dim", bundle.network.transformer_embed_dim);
+        bundle.network.adaptive_activation = model.value("adaptive_activation", bundle.network.adaptive_activation);
+        bundle.network.adaptive_activation_init = model.value("adaptive_activation_init", bundle.network.adaptive_activation_init);
     }
 
     if (json.contains("training")) {
@@ -76,6 +87,11 @@ ConfigBundle load_config(const std::filesystem::path& path) {
             bundle.training.gamma = schedule.value("gamma", bundle.training.gamma);
         }
         bundle.training.use_lbfgs_after = training.value("use_lbfgs_after", bundle.training.use_lbfgs_after);
+        bundle.training.rar_enabled = training.value("rar_enabled", bundle.training.rar_enabled);
+        bundle.training.rar_candidate_pool = training.value("rar_candidate_pool", bundle.training.rar_candidate_pool);
+        bundle.training.rar_topk = training.value("rar_topk", bundle.training.rar_topk);
+        bundle.training.rar_frequency = training.value("rar_frequency", bundle.training.rar_frequency);
+        bundle.training.rar_sampling = read_optional_string(training, "rar_sampling", bundle.training.rar_sampling);
     }
 
     if (json.contains("data")) {

@@ -16,6 +16,17 @@ struct NetworkConfig {
     std::string weight_init{"xavier_uniform"};
     double bias_init{0.0};
     int seed{42};
+    std::string architecture{"fnn"};
+    int resnet_blocks{0};
+    int cnn_channels{32};
+    int cnn_layers{2};
+    int cnn_kernel_size{3};
+    int transformer_heads{4};
+    int transformer_layers{2};
+    int transformer_ffn_dim{128};
+    int transformer_embed_dim{64};
+    bool adaptive_activation{false};
+    double adaptive_activation_init{1.0};
 };
 
 struct TrainingConfig {
@@ -26,6 +37,12 @@ struct TrainingConfig {
     std::vector<int> milestones{};
     double gamma{0.1};
     int use_lbfgs_after{-1};
+
+    bool rar_enabled{false};
+    int rar_candidate_pool{0};
+    int rar_topk{0};
+    int rar_frequency{10};
+    std::string rar_sampling{"latin_hypercube"};
 };
 
 struct DataConfig {
