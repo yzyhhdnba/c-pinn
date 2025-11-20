@@ -19,6 +19,7 @@
 #include "pinn/types.hpp"
 #include "pinn/utils/callback.hpp"
 #include "pinn/utils/config.hpp"
+#include "pinn/utils/visualization_callback.hpp"
 
 int main(int argc, char** argv) {
     using namespace pinn;
@@ -58,6 +59,7 @@ int main(int argc, char** argv) {
     std::cout << "Loaded config: " << config_path << std::endl;
 
     const int64_t seed = config.network.seed;
+
     const bool cuda_available = torch::cuda::is_available();
     std::cout << "torch::cuda::is_available(): " << (cuda_available ? "true" : "false") << std::endl;
     torch::Device device = cuda_available ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
@@ -110,15 +112,10 @@ int main(int argc, char** argv) {
 
     geometry::SamplingStrategy sampling = geometry::sampling_strategy_from_string(config.data.sampling);
 
-    TrainingBatch batch;
-    auto tensor_opts = torch::TensorOptions().dtype(torch::kFloat).device(device);
-    batch.interior_points = geometry::sample_interior(domain, config.data.n_interior, sampling, generator).to(tensor_opts);
-    batch.boundary_points = geometry::sample_boundary(domain, config.data.n_boundary, generator).to(tensor_opts);
-    batch.boundary_values = torch::zeros({batch.boundary_points.size(0), 1}, tensor_opts);
-
     model::TrainingOptions options;
     options.epochs = config.training.epochs;
-    options.batch_size = config.training.batch_size;
+    options.batch_size = config.data.n_interior;
+    options.mini_batch_size = config.training.batch_size;
     options.schedule.optimizer_name = config.training.optimizer;
     options.schedule.learning_rate = static_cast<Scalar>(config.training.learning_rate);
     options.schedule.milestones = config.training.milestones;
@@ -128,13 +125,46 @@ int main(int argc, char** argv) {
     utils::CallbackRegistry callbacks;
     struct PrintCallback : utils::Callback {
         void on_epoch_end(const utils::CallbackContext& ctx) override {
-            std::cout << "Epoch " << ctx.epoch << ": loss=" << ctx.loss << std::endl;
+            std::cout << "Epoch " << ctx.epoch << " Loss: " << ctx.loss << std::endl;
         }
     };
     callbacks.add(std::make_shared<PrintCallback>());
 
+    auto eval_points = torch::linspace(domain.left(), domain.right(), 256, torch::TensorOptions().dtype(torch::kFloat));
+    eval_points = eval_points.unsqueeze(1);
+
+    utils::VisualizationOptions viz_options;
+    viz_options.output_dir = fs::path{"sandbox"} / "poisson";
+    int viz_interval = config.training.epochs / 10;
+    if (viz_interval <= 0) {
+        viz_interval = 1;
+    }
+    viz_options.interval = viz_interval;
+
+    utils::VisualizationSpec viz_spec;
+    viz_spec.name = "poisson";
+    viz_spec.points = eval_points;
+    viz_spec.reference = [](const Tensor& points) {
+        auto x = points.index({torch::indexing::Slice(), 0});
+        auto values = torch::sin(M_PI * x);
+        return values.unsqueeze(1);
+    };
+
+    callbacks.add(std::make_shared<utils::VisualizationCallback>(pinn_model, std::vector<utils::VisualizationSpec>{viz_spec}, viz_options));
+
     model::Trainer trainer(pinn_model, options);
-    trainer.fit(batch, callbacks);
+    
+    // 使用重采样接口
+    auto sampler = [&](const torch::Device& dev, torch::Generator& gen) -> TrainingBatch {
+        TrainingBatch batch;
+        auto tensor_opts = torch::TensorOptions().dtype(torch::kFloat).device(dev);
+        batch.interior_points = geometry::sample_interior(domain, config.data.n_interior, sampling, gen).to(tensor_opts);
+        batch.boundary_points = geometry::sample_boundary(domain, config.data.n_boundary, gen).to(tensor_opts);
+        batch.boundary_values = torch::zeros({batch.boundary_points.size(0), 1}, tensor_opts);
+        return batch;
+    };
+    
+    trainer.fit_with_resampling(sampler, generator, device, callbacks);
 
     return 0;
 }

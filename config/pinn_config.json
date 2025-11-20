@@ -19,7 +19,7 @@
     "optimizer": "adam",
     "lr": 0.001,
     "batch_size": 96,
-    "epochs": 50,
+    "epochs": 150,
     "lr_schedule": {
       "type": "none"
     }

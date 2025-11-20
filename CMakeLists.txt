@@ -79,6 +79,7 @@ add_library(pinn
     src/utils/config.cpp
     src/utils/callbacks.cpp
     src/utils/checkpoint.cpp
+    src/utils/visualization_callback.cpp
     src/utils/logger.cpp
 )
 
