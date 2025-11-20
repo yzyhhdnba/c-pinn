@@ -1,1 +1,15 @@
 build/
+sandbox/
+# Poisson related images
+# Ignore images stored in sandbox/poisson
+sandbox/poisson/*.png
+sandbox/poisson/*.jpg
+sandbox/poisson/*.jpeg
+sandbox/poisson/*.gif
+sandbox/poisson/*.svg
+# Ignore any image file with "poisson" in the filename anywhere in the repo
+*poisson*.png
+*poisson*.jpg
+*poisson*.jpeg
+*poisson*.gif
+*poisson*.svg

@@ -19,6 +19,7 @@
 #include "pinn/types.hpp"
 #include "pinn/utils/callback.hpp"
 #include "pinn/utils/config.hpp"
+#include "pinn/utils/visualization_callback.hpp"
 
 int main(int argc, char** argv) {
     using namespace pinn;
@@ -67,6 +68,7 @@ int main(int argc, char** argv) {
     }
 
     const int64_t seed = config.network.seed;
+
     const bool cuda_available = torch::cuda::is_available();
     std::cout << "torch::cuda::is_available(): " << (cuda_available ? "true" : "false") << std::endl;
     torch::Device device = cuda_available ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
@@ -120,15 +122,10 @@ int main(int argc, char** argv) {
 
     geometry::SamplingStrategy sampling = geometry::sampling_strategy_from_string(config.data.sampling);
 
-    TrainingBatch batch;
-    auto tensor_opts = torch::TensorOptions().dtype(torch::kFloat).device(device);
-    batch.interior_points = geometry::sample_interior(domain, config.data.n_interior, sampling, generator).to(tensor_opts);
-    batch.boundary_points = geometry::sample_boundary(domain, config.data.n_boundary, generator).to(tensor_opts);
-    batch.boundary_values = boundary_fn(batch.boundary_points);
-
     model::TrainingOptions options;
     options.epochs = config.training.epochs;
-    options.batch_size = config.training.batch_size;
+    options.batch_size = config.data.n_interior;
+    options.mini_batch_size = config.training.batch_size;
     options.schedule.optimizer_name = config.training.optimizer;
     options.schedule.learning_rate = static_cast<Scalar>(config.training.learning_rate);
     options.schedule.milestones = config.training.milestones;
@@ -143,8 +140,45 @@ int main(int argc, char** argv) {
     };
     callbacks.add(std::make_shared<PrintCallback>());
 
+    int grid = 64;
+    auto x_eval = torch::linspace(0.0, 1.0, grid, torch::TensorOptions().dtype(torch::kFloat));
+    auto t_eval = torch::linspace(0.0, 1.0, grid, torch::TensorOptions().dtype(torch::kFloat));
+    auto mesh = torch::meshgrid({x_eval, t_eval});
+    auto eval_points = torch::stack({mesh[0].reshape({-1}), mesh[1].reshape({-1})}, 1);
+
+    utils::VisualizationOptions viz_options;
+    viz_options.output_dir = fs::path{"sandbox"} / "advection";
+    int viz_interval = config.training.epochs / 10;
+    if (viz_interval <= 0) {
+        viz_interval = 1;
+    }
+    viz_options.interval = viz_interval;
+
+    utils::VisualizationSpec viz_spec;
+    viz_spec.name = "advection";
+    viz_spec.points = eval_points;
+    viz_spec.reference = [velocity](const Tensor& points) {
+        auto x = points.index({Slice(), 0});
+        auto t = points.index({Slice(), 1});
+        auto values = torch::sin(M_PI * (x - velocity * t));
+        return values.unsqueeze(1);
+    };
+
+    callbacks.add(std::make_shared<utils::VisualizationCallback>(pinn_model, std::vector<utils::VisualizationSpec>{viz_spec}, viz_options));
+
     model::Trainer trainer(pinn_model, options);
-    trainer.fit(batch, callbacks);
+    
+    // 使用重采样接口
+    auto sampler = [&](const torch::Device& dev, torch::Generator& gen) -> TrainingBatch {
+        TrainingBatch batch;
+        auto tensor_opts = torch::TensorOptions().dtype(torch::kFloat).device(dev);
+        batch.interior_points = geometry::sample_interior(domain, config.data.n_interior, sampling, gen).to(tensor_opts);
+        batch.boundary_points = geometry::sample_boundary(domain, config.data.n_boundary, gen).to(tensor_opts);
+        batch.boundary_values = boundary_fn(batch.boundary_points);
+        return batch;
+    };
+    
+    trainer.fit_with_resampling(sampler, generator, device, callbacks);
 
     return 0;
 }
