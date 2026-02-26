@@ -26,29 +26,35 @@ Tensor Interval::boundary_normal(const Tensor& x) const {
     const Scalar value = x.item<Scalar>();
     const Scalar tol = 1e-12;
     if (std::abs(value - left_) < tol) {
-        return torch::tensor({-1.0}, torch::dtype(torch::kDouble));
+        return pinn::core::Tensor::full({1}, -1.0);
     }
     if (std::abs(value - right_) < tol) {
-        return torch::tensor({1.0}, torch::dtype(torch::kDouble));
+        return pinn::core::Tensor::full({1}, 1.0);
     }
-    return torch::zeros({1}, torch::dtype(torch::kDouble));
+    return pinn::core::Tensor::zeros({1});
 }
 
 Tensor Interval::uniform_points(int n_per_dim) const {
-    TORCH_CHECK(n_per_dim > 1, "Uniform points require at least two samples");
-    auto lin = torch::linspace(left_, right_, n_per_dim, torch::dtype(torch::kDouble));
+    if (n_per_dim <= 1) {
+        throw std::invalid_argument{"Uniform points require at least two samples"};
+    }
+    auto lin = pinn::core::Tensor::linspace(left_, right_, n_per_dim);
     return lin.unsqueeze(1);
 }
 
-Tensor Interval::random_points(int n, torch::Generator& gen) const {
-    (void)gen;  // seed control can be added when wiring custom generators
-    auto rand = torch::rand({n, 1}, torch::dtype(torch::kDouble));
-    return left_ + (right_ - left_) * rand;
+Tensor Interval::random_points(int n, pinn::core::Rng& rng) const {
+    auto r = pinn::core::Tensor::rand_uniform({n, 1}, rng);
+    auto* p = r.data_ptr<double>();
+    const double span = static_cast<double>(right_ - left_);
+    for (int64_t i = 0; i < r.numel(); ++i) {
+        p[i] = static_cast<double>(left_) + span * p[i];
+    }
+    return r;
 }
 
 std::pair<Tensor, Tensor> Interval::bounds() const {
-    auto opts = torch::dtype(torch::kDouble);
-    return {torch::tensor({left_}, opts), torch::tensor({right_}, opts)};
+    return {pinn::core::Tensor::full({1}, static_cast<double>(left_)),
+            pinn::core::Tensor::full({1}, static_cast<double>(right_))};
 }
 
 }  // namespace pinn::geometry

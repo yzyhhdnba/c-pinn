@@ -1,342 +1,517 @@
-# C++ 物理信息神经网络 (PINN) 框架
+# C-PINN: C++17 物理信息神经网络框架
 
-本项目是一个基于现代 C++17 和 LibTorch 的高性能物理信息神经网络（Physics-Informed Neural Networks, PINN）框架。它旨在复刻并扩展 DeepXDE 的核心功能，提供从几何建模、PDE 定义到模型训练与可视化的全套解决方案。
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://isocpp.org/)
+[![CMake](https://img.shields.io/badge/CMake-3.22+-green.svg)](https://cmake.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## ✨ 核心特性
+**C-PINN** 是一个完全用 C++17 实现的物理信息神经网络（Physics-Informed Neural Networks）框架，无需深度学习框架依赖，支持双模编译。
 
-- **多后端支持**：基于 LibTorch，支持 CPU 和 CUDA 加速（自动检测）。
-- **丰富的网络架构**：
-  - **FNN** (全连接网络)
-  - **ResNet** / **ModifiedResNet** (残差网络)
-  - **CNN** (卷积神经网络，支持 1D/2D/3D)
-  - **Transformer** (自注意力机制)
-- **先进的激活函数**：
-  - 基础：`tanh`, `sigmoid`, `relu`, `leaky_relu`, `gelu`, `swish`, `silu`
-  - 自适应：`adaptive_tanh`, `adaptive_sigmoid`, `rowdy`, `l_lcaf` (Layer-wise Locally Adaptive Activation Functions)
-- **高级训练策略**：
-  - **RAR** (Residual-based Adaptive Refinement)：基于残差的自适应加点策略，自动提升难点区域的精度。
-  - **L-BFGS**：支持二阶优化器微调。
-  - **学习率调度**：StepLR, ExponentialLR 等。
-- **边界条件**：
-  - Dirichlet, Neumann, Robin
-  - **PeriodicBC** (周期性边界条件)
-- **几何与采样**：
-  - 支持区间、矩形等基础几何。
-  - 支持 Latin Hypercube Sampling (LHS)、Grid、Random 等采样策略。
+## 🎯 核心特点
 
-## 🚀 快速上手
+- ✅ **纯 C++17 实现** — 不依赖 Python、TensorFlow、PyTorch（LibTorch 为可选扩展）
+- ✅ **双模编译** — 纯 C++ 模式（零外部 DL 框架）与 LibTorch 混合模式
+- ✅ **有限差分 + 手动反向传播** — 不依赖 Autograd 完成 PINN 训练
+- ✅ **手写 Adam 优化器** — 包含动量、偏差修正、可选权重衰减
+- ✅ **已验证** — KdV、Sine-Gordon、Allen-Cahn 三个非线性 PDE 训练收敛
 
-### 1. 环境准备
+---
 
-请确保您的系统已安装以下依赖：
+## 📊 架构模式
 
-- **C++ 编译器**：支持 C++17 (GCC >= 9, Clang >= 11, MSVC >= 19.28)
-- **CMake**：>= 3.15
-- **LibTorch**：C++ 版 PyTorch (建议 2.0+)
-- **Eigen3**：线性代数库
-- **nlohmann_json**：JSON 解析库
-- **OpenMP** (可选，推荐)：用于并行加速
+项目通过 CMake 选项 `PINN_USE_TORCH` 控制编译模式：
 
-#### macOS (Apple Silicon)
+| 特性 | **纯 C++ 模式** (`OFF`) | **LibTorch 模式** (`ON`) |
+|:-----|:-----------------------|:----------------------|
+| **编程语言** | C++17 | C++17 |
+| **外部依赖** | nlohmann_json 仅此一项 | + LibTorch (PyTorch C++ API) |
+| **微分方式** | 有限差分 + 手动反向传播 | LibTorch Autograd |
+| **硬件支持** | CPU (OpenMP 加速) | CPU / CUDA GPU |
+| **部署场景** | 嵌入式、边缘计算、推理 | GPU 训练、研究原型 |
+| **编译产物** | 独立可执行文件 (150K-250K) | 依赖 LibTorch 动态库 |
 
-```bash
-# 安装基础依赖
-brew install cmake eigen nlohmann-json libomp
+**注意**：虽然文件扩展名为 `.cpp/.hpp`，但纯 C++ 模式中的代码是标准 C++17，使用 C++ 特性如类、模板、STL 容器等。"纯 C++" 指**不依赖外部深度学习框架**，而非使用 C 语言。
 
-# 下载 LibTorch (CPU 版)
-wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.5.1.zip
-unzip libtorch-shared-with-deps-2.5.1.zip
-export LIBTORCH_PATH=$(pwd)/libtorch
+---
+
+## 🏗️ 核心组件（纯 C++ 模式）
+
+### 1. 张量引擎 (`pinn::core::Tensor`)
+
+自研轻量级张量库，无第三方依赖：
+
+```cpp
+// 特性
+class Tensor {
+    // 存储：Row-Major 连续内存 (std::vector<double>)
+    // 支持：动态形状、多维索引、广播、切片
+    // 算子：+, -, *, /, matmul, pow, sin, tanh, relu
+    // 归约：sum, mean, norm
+};
+
+// 创建示例
+auto x = core::Tensor::rand_uniform({64, 2});  // [batch=64, dim=2]
+auto w = core::Tensor::zeros({2, 50});         // 权重矩阵
+auto y = x.matmul(w);                          // 前向传播
+auto loss = y.pow(2.0).mean_all();             // MSE 损失
 ```
 
-#### Linux (Ubuntu)
+**实现细节**：
+- Row-Major 内存布局（缓存友好）
+- 显式循环展开（无虚函数调用开销）
+- OpenMP 并行加速（GEMM、逐元素运算）
 
-```bash
-sudo apt-get install cmake libeigen3-dev nlohmann-json3-dev
+### 2. 神经网络模块 (`pinn::nn`)
 
-# 下载 LibTorch (CUDA 版，请根据显卡选择版本)
-wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.5.1%2Bcu118.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.5.1+cu118.zip
-export LIBTORCH_PATH=$(pwd)/libtorch
+#### 全连接层 (`Linear`)
+
+```cpp
+class Linear {
+public:
+    // 前向：y = xW^T + b
+    Tensor forward(const Tensor& x) const;
+    
+    // 反向：手动链式法则
+    // grad_output: dL/dy [batch, out_features]
+    // 返回: dL/dx [batch, in_features]
+    Tensor backward(const Tensor& grad_output, const Tensor& input);
+    
+private:
+    Tensor weight_t_;      // [in_features, out_features]
+    Tensor bias_;          // [out_features]
+    Tensor grad_weight_;   // 累积梯度
+    Tensor grad_bias_;
+};
 ```
 
-### 2. 编译项目
+#### 多层感知机 (`Fnn`)
 
-```bash
-mkdir build
-cd build
+```cpp
+// 构建 2 → 50 → 50 → 50 → 1 网络
+std::vector<int> layers = {2, 50, 50, 50, 1};
+nn::Fnn net(layers, "tanh", nn::InitType::kXavierUniform, 0.0, /*seed=*/42);
 
-# 配置 CMake (需指定 LibTorch 路径)
-cmake -DCMAKE_PREFIX_PATH=$LIBTORCH_PATH ..
-
-# 编译 (使用多核)
-cmake --build . --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu)
+// 训练流程
+Tensor output = net.forward(input);           // 缓存中间激活
+Tensor grad_in = net.backward(grad_output);  // 反向传播
 ```
 
-### 3. 运行示例
+#### 激活函数
 
-编译完成后，可执行文件位于 `build/examples/` 目录。
+| 函数 | 前向 | 反向 |
+|:-----|:-----|:-----|
+| `tanh` | $\tanh(x)$ | $1 - \tanh^2(x)$ |
+| `relu` | $\max(0, x)$ | $x > 0 ? 1 : 0$ |
+| `sin` | $\sin(x)$ | $\cos(x)$ |
 
-**Burgers 方程示例**：
+所有激活函数及其导数均手动实现，无自动微分依赖。
 
-```bash
-# 运行 Burgers 方程求解
-./build/examples/example_burgers config/burgers_config.json
+### 3. 优化器 (`pinn::nn::AdamOptimizer`)
+
+完整 Adam 算法实现（参考 [Kingma & Ba, 2014](https://arxiv.org/abs/1412.6980)）：
+
+```cpp
+// 配置
+nn::AdamOptimizer::Options opts;
+opts.lr = 1e-3;
+opts.beta1 = 0.9;    // 一阶矩估计指数衰减率
+opts.beta2 = 0.999;  // 二阶矩估计指数衰减率
+opts.epsilon = 1e-8;
+opts.weight_decay = 0.0;
+
+nn::AdamOptimizer optimizer(net, opts);
+
+// 训练步
+optimizer.zero_grad();
+// ... 计算损失并调用 net.backward() ...
+optimizer.step();  // 更新所有参数
 ```
 
-程序将在 `sandbox/burgers/` 目录下生成训练过程的 CSV 文件（包含预测值、真实值和误差）。
+**实现要点**：
+- 动量缓冲区：一阶矩 $m_t$、二阶矩 $v_t$（使用 `malloc/free` 管理）
+- 偏差修正：$\hat{m}_t = \frac{m_t}{1-\beta_1^t}$
+- 权重衰减：L2 正则化可选
 
-## ⚙️ 配置说明
+### 4. 随机数生成 (`pinn::core::Rng`)
 
-项目使用 JSON 文件进行配置，支持覆盖默认参数。
+确定性伪随机数生成器（基于 SplitMix64）：
 
-### 配置文件结构 (`config/burgers_config.json` 示例)
+```cpp
+core::Rng rng(42);  // 固定种子
 
-```json
-{
-  "model": {
-    "input_dim": 2,
-    "output_dim": 1,
-    "layers": [64, 64, 64, 64],
-    "activation": "tanh",          // 支持 "adaptive_tanh", "swish" 等
-    "architecture": "fnn",         // 可选: "fnn", "resnet", "modified_resnet", "transformer"
-    "weight_init": "xavier_uniform"
-  },
-  "training": {
-    "optimizer": "adam",
-    "lr": 0.001,
-    "epochs": 1000,
-    "rar_enabled": true,           // 启用 RAR 自适应加点
-    "rar_frequency": 100,          // 每 100 epoch 加一次点
-    "rar_topk": 100                // 每次添加残差最大的 100 个点
-  },
-  "data": {
-    "n_interior": 2000,
-    "n_boundary": 500,
-    "sampling": "latin_hypercube"
-  },
-  "pde": {
-    "nu": 0.01                     // PDE 特定参数
-  }
+double u = rng.uniform01();          // U(0, 1)
+double n = rng.normal01();           // N(0, 1)，Box-Muller 变换
+int64_t i = rng.randint(0, 100);     // [0, 100) 均匀整数
+```
+
+### 5. 模型持久化 (`pinn::utils::CheckpointManagerC`)
+
+自定义二进制格式（`.bin`），比 PyTorch `.pt` 文件更紧凑：
+
+```cpp
+// 保存
+CheckpointManagerC ckpt("./checkpoints", /*save_every=*/100);
+ckpt.save(net, epoch, loss);  
+// 生成文件：epoch_500_loss_1.23e-07.bin
+
+// 加载
+ckpt.load_latest(net);  // 自动找到最新检查点
+```
+
+**文件格式**：
+```
+[4 bytes] Magic: 0x50494E4E ('PINN')
+[4 bytes] Version: 1
+[4 bytes] Num layers
+[4 bytes] Input dim
+[4*N bytes] Layer dims
+[Variable] Weights (扁平化 double 数组)
+[Variable] Biases
+```
+
+---
+
+## 🧮 PINN 训练原理
+
+### 微分策略：有限差分 + 手动反向传播
+
+纯 C++ 模式采用**混合微分策略**：
+
+#### 1. PDE 导数：有限差分（Finite Difference）
+
+用于计算偏微分方程中的空间/时间导数：
+
+| 导数 | 公式 | 模板点数 |
+|:-----|:-----|:--------|
+| $u_x$ | $\frac{u(x+h) - u(x-h)}{2h}$ | 3 |
+| $u_{xx}$ | $\frac{u(x+h) - 2u(x) + u(x-h)}{h^2}$ | 3 |
+| $u_{xxx}$ | $\frac{u(x+2h) - 2u(x+h) + 2u(x-h) - u(x-2h)}{2h^3}$ | 5 |
+
+#### 2. 参数梯度：手动反向传播
+
+用于更新神经网络权重：
+
+```cpp
+// 链式法则展开
+// dL/dW_i = dL/da_{i+1} × da_{i+1}/dz_i × dz_i/dW_i
+//                      ↑ 激活函数导数  ↑ 输入 x^T
+
+Tensor Linear::backward(const Tensor& grad_output, const Tensor& input) {
+    // grad_output: dL/d(output) [batch, out_features]
+    // input: 前向传播时缓存的输入 [batch, in_features]
+    
+    // 计算 dL/dW = input^T × grad_output
+    grad_weight_ = input.transpose(0, 1).matmul(grad_output);
+    
+    // 计算 dL/db = sum(grad_output, dim=0)
+    grad_bias_ = grad_output.sum(0);
+    
+    // 传递给前一层：dL/d(input) = grad_output × W
+    return grad_output.matmul(weight_t_.transpose(0, 1));
 }
 ```
 
-### 命令行参数
+### 完整训练流程（KdV 方程示例）
 
-配置文件的加载优先级：
-1. 命令行参数：`./exe path/to/config.json`
-2. 环境变量：`PINN_CONFIG=path/to/config.json ./exe`
-3. 默认路径：`config/<name>_config.json`
+**目标**：求解 Korteweg–de Vries 方程 $u_t + 6uu_x + u_{xxx} = 0$
 
-## 📊 可视化
+```cpp
+for (int iter = 0; iter < 1000; ++iter) {
+    optimizer.zero_grad();
+    
+    // 1. 采样配置点
+    auto x_t = core::Tensor::rand_uniform({64, 2});  // [batch, (x, t)]
+    
+    // 2. 构造有限差分模板
+    std::vector<StencilPoint> stencils;
+    stencils.push_back({x_t.clone(), 0.0});                    // 中心点
+    stencils.push_back({shift(x_t, 0, +h), 0.0});              // x+h
+    stencils.push_back({shift(x_t, 0, -h), 0.0});              // x-h
+    stencils.push_back({shift(x_t, 0, +2*h), 0.0});            // x+2h
+    stencils.push_back({shift(x_t, 0, -2*h), 0.0});            // x-2h
+    stencils.push_back({shift(x_t, 1, +h), 0.0});              // t+h
+    stencils.push_back({shift(x_t, 1, -h), 0.0});              // t-h
+    
+    // 3. 前向传播所有模板点
+    for (auto& sp : stencils) {
+        sp.output = net.forward(sp.input);
+    }
+    
+    // 4. 计算有限差分导数
+    auto u = stencils[0].output;
+    auto u_x = (stencils[1].output - stencils[2].output) / (2*h);
+    auto u_xxx = (stencils[3].output - 2*stencils[1].output 
+                + 2*stencils[2].output - stencils[4].output) / (2*h*h*h);
+    auto u_t = (stencils[5].output - stencils[6].output) / (2*h);
+    
+    // 5. PDE 残差
+    auto residual = u_t + 6.0 * u * u_x + u_xxx;
+    auto loss = residual.pow(2.0).mean_all();
+    
+    // 6. 反向传播（手动链式法则）
+    auto dL_dR = residual * (2.0 / batch_size);
+    
+    // 对每个模板点：dL/du_i = dL/dR × dR/du_i
+    net.forward(stencils[0].input);
+    net.backward(dL_dR * 6.0 * u_x);  // dR/du = 6*u_x
+    
+    net.forward(stencils[1].input);
+    net.backward(dL_dR * (6.0*u/(2*h) - 2.0/(2*h*h*h)));  // dR/du_xp
+    // ... 其余模板点类似 ...
+    
+    // 7. 参数更新
+    optimizer.step();
+}
+```
 
-训练过程中生成的 CSV 文件可以使用 Python 脚本进行绘图：
+---
+
+## 🚀 快速开始
+
+### 系统要求
+
+**必需**（纯 C++ 模式）：
+- **编译器**：GCC ≥ 9 / Clang ≥ 11 / MSVC ≥ 19.28（支持 C++17）
+- **CMake**：≥ 3.22
+- **依赖库**：[nlohmann/json](https://github.com/nlohmann/json)（JSON 配置解析）
+
+**可选**：
+- **LibTorch**：≥ 2.0（仅 Torch 模式需要）
+- **OpenMP**：多线程加速（推荐）
+
+### 编译步骤
+
+#### 方式 A：纯 C++ 模式（推荐）
 
 ```bash
-# 安装绘图依赖
-pip install matplotlib pandas numpy
+# macOS
+brew install cmake nlohmann-json libomp
 
-# 绘制结果
-python scripts/plot_csv.py sandbox/burgers/burgers_epoch_00100.csv --output result.png
+# Ubuntu/Debian
+sudo apt install cmake nlohmann-json3-dev libomp-dev
+
+# 编译
+mkdir build && cd build
+cmake .. -DPINN_USE_TORCH=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j$(nproc)
 ```
 
-## 📂 目录结构
-
-```
-.
-├── CMakeLists.txt          # 构建脚本
-├── config/                 # 配置文件
-├── examples/               # 示例代码 (Burgers, Poisson, Advection)
-├── include/pinn/           # 头文件
-│   ├── geometry/           # 几何定义
-│   ├── loss/               # 损失函数
-│   ├── model/              # 模型与训练器
-│   ├── nn/                 # 神经网络架构
-│   └── pde/                # PDE 定义与边界条件
-├── src/                    # 源代码
-└── scripts/                # 辅助脚本
-```
-
-## 🛠️ 常见问题
-
-1. **`dyld: Library not loaded` (macOS)**:
-   - 确保 `libomp` 已安装 (`brew install libomp`)。
-   - 确保 LibTorch 的库路径已添加到 `DYLD_LIBRARY_PATH` (虽然 CMake RPATH 通常会处理好)。
-
-2. **内存不足 (OOM)**:
-   - 减小 `batch_size` 或 `n_interior`。
-   - 减小网络规模 (`layers`)。
-   - 在 macOS 上，注意 LibTorch CPU 版的内存占用。
-
-3. **CMake 找不到 Torch**:
-   - 确保 `CMAKE_PREFIX_PATH` 正确指向解压后的 `libtorch` 目录。
-
-
-## 快速上手
-
-### 一分钟总览
-
-1. 安装依赖：LibTorch、CMake、nlohmann_json、Eigen3，以及支持 C++17 的编译器。
-2. 进入仓库根目录执行 `mkdir -p build && cd build && TORCH_CUDA_ARCH_LIST="12.0" cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . --parallel`。
-3. 回到仓库根目录，运行 `./build/examples/example_poisson`，观察 `sandbox/poisson/` 下是否产生 CSV。
-
-### 依赖准备
-
-- 支持 C++17 的编译器（建议 GCC ≥ 11、Clang ≥ 14）
-- CMake ≥ 3.22
-- [LibTorch](https://pytorch.org/get-started/locally/)（版本需与编译器和 CUDA 兼容）
-- [nlohmann_json](https://github.com/nlohmann/json)
-- [Eigen3](https://eigen.tuxfamily.org/)
-
-推荐流程：
+#### 方式 B：LibTorch 模式
 
 ```bash
-# 1. 从 PyTorch 官网下载与 CUDA 版本匹配的 LibTorch 包
-LIBTORCH_ZIP=libtorch-cxx11-abi-shared-with-deps-2.3.0%2Bcu121.zip   # 示例，具体版本请以官网为准
-wget https://download.pytorch.org/libtorch/cu121/$LIBTORCH_ZIP
-unzip $LIBTORCH_ZIP -d $HOME
+# 下载 LibTorch (CPU 版本示例)
+wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.5.1.zip
+unzip libtorch-shared-with-deps-2.5.1.zip
 
-# 2. 告诉 CMake LibTorch 的安装路径
-export CMAKE_PREFIX_PATH="$HOME/libtorch"
-export Torch_DIR="$CMAKE_PREFIX_PATH/share/cmake/Torch"
-
-# 3a. Conda 环境：
-conda install -c conda-forge cmake nlohmann_json eigen
-
-# 3b. 或使用 APT（具备 sudo 权限时）：
-sudo apt update
-sudo apt install cmake nlohmann-json3-dev libeigen3-dev
+# 编译
+mkdir build_torch && cd build_torch
+cmake .. -DPINN_USE_TORCH=ON -DCMAKE_PREFIX_PATH=$(pwd)/../libtorch
+cmake --build . -j$(nproc)
 ```
 
-若使用 CPU 版 LibTorch，请从 CPU 下载页面获取 `libtorch-shared-with-deps-*-cpu.zip`，并省略 CUDA 相关变量。
-
-### 构建
+### 运行示例
 
 ```bash
-mkdir -p build
 cd build
-TORCH_CUDA_ARCH_LIST="12.0" cmake -DCMAKE_BUILD_TYPE=Release ..
-cmake --build . --parallel
+
+# 纯 C++ 示例
+./examples/example_pure_c_kdv            # KdV 方程训练
+./examples/example_pure_c_sine_gordon    # Sine-Gordon 方程
+./examples/example_pure_c_allen_cahn     # Allen-Cahn 方程
+./examples/example_pure_c_inference      # 基础推理测试
+
+# LibTorch 示例（需启用 PINN_USE_TORCH）
+./examples/example_burgers               # Burgers 方程（使用 Autograd）
 ```
 
-- `TORCH_CUDA_ARCH_LIST` 需按目标 GPU 的计算能力设置（例如 8.6、9.0）；使用 CPU 版 LibTorch 时可删除该变量。
-- 构建完成后，示例二进制位于 `build/examples/`。
+**预期输出**（KdV 方程，1000 次迭代）：
+```
+=== Pure C++ KdV Solver (Stencil Framework) ===
+Iter 0 Loss: 0.0965526
+Iter 100 Loss: 4.74016e-06
+Iter 200 Loss: 5.31217e-07
+...
+Iter 900 Loss: 1.53759e-07
+Training finished.
+```
 
-### 运行流程
+---
 
-1. 进入仓库根目录运行示例：
+## 📁 项目结构
 
-    ```bash
-    cd /home/yzy/work4
-    ./build/examples/example_poisson
-    ```
+```
+c-pinn/
+├── include/pinn/           # 公共头文件
+│   ├── core/               # [纯 C++] 核心数据结构
+│   │   ├── tensor.hpp      # 张量类（存储、算子、形状操作）
+│   │   └── rng.hpp         # 随机数生成器（SplitMix64 + Box-Muller）
+│   ├── nn/                 # [纯 C++] 神经网络
+│   │   ├── fnn.hpp         # 全连接网络（Linear + Fnn）
+│   │   ├── optimizer.hpp   # Adam / L-BFGS 优化器
+│   │   ├── activation.hpp  # 激活函数（tanh, relu, sin）
+│   │   ├── initialization.hpp # 权重初始化（Xavier, Kaiming）
+│   │   ├── gemm.hpp        # 矩阵乘法（OpenMP 并行）
+│   │   └── adam.hpp        # Adam 算法实现
+│   ├── geometry/           # [纯 C++] 几何域与采样
+│   │   ├── interval.hpp    # 1D 区间
+│   │   ├── rectangle.hpp   # N维超矩形
+│   │   ├── difference.hpp  # 几何差集
+│   │   └── sampling.hpp    # 采样策略（均匀网格、拉丁超立方）
+│   ├── utils/              # 工具类
+│   │   ├── checkpoint_c.hpp # [纯 C++] 二进制模型存储
+│   │   ├── stencil.hpp     # 有限差分模板点管理
+│   │   ├── logger.hpp      # 日志
+│   │   └── config.hpp      # JSON 配置解析
+│   ├── pde/                # [混合] PDE 定义
+│   │   ├── pde.hpp         # PDE 抽象类
+│   │   ├── boundary_condition.hpp # 边界条件（Dirichlet, Neumann, Periodic）
+│   │   └── parser.hpp      # PDE 表达式解析器
+│   ├── loss/               # [仅 Torch] 损失函数
+│   │   └── loss_terms.hpp
+│   └── model/              # [仅 Torch] 训练器
+│       ├── model.hpp
+│       └── trainer.hpp
+├── src/                    # 实现文件
+│   ├── core/tensor.cpp
+│   ├── nn/{fnn, optimizer, adam, ...}.cpp
+│   ├── geometry/{interval, rectangle, ...}.cpp
+│   └── utils/{checkpoint_c, logger, ...}.cpp
+├── examples/               # 示例程序
+│   ├── pure_c_kdv.cpp      # [纯 C++] KdV 方程
+│   ├── pure_c_sine_gordon.cpp # [纯 C++] Sine-Gordon 方程
+│   ├── pure_c_allen_cahn.cpp  # [纯 C++] Allen-Cahn 方程
+│   ├── pure_c_inference.cpp   # [纯 C++] 推理示例
+│   └── burgers.cpp         # [Torch] Burgers 方程
+├── tests/                  # 单元测试
+│   └── tensor_test.cpp
+├── config/                 # 配置文件
+│   └── pinn_config.json
+├── docs/                   # 文档
+│   ├── pure_c_vs_torch.md  # 技术对比
+│   └── requirements.md
+├── CMakeLists.txt          # 主 CMake 配置
+└── README.md
+```
 
-  建议始终在仓库根目录启动，这样 CSV 会落在 `sandbox/<示例名>/`，与脚本默认路径一致。
+---
 
-2. 执行时若 `torch::cuda::is_available()` 返回 true，程序会使用 `torch::Device(torch::kCUDA, 0)`；否则自动回退到 CPU 并输出提示。
+## 🔬 验证结果
 
-3. 配置优先级：命令行参数 > 环境变量 `PINN_CONFIG` > 默认 JSON。配置文件位于 `config/`，可直接拷贝后修改。
+**测试环境**：Apple M4, 16GB RAM, Apple Clang 17.0.0, Release 模式
 
-4. 训练默认注册两个回调：一个打印损失，一个按照约总 epoch 数 10% 的频率导出可视化 CSV。可在示例源码中调整 `VisualizationOptions` 改变频率与路径。
+| 方程 | PDE 形式 | 初始损失 | 最终损失 (iter 900) | 实测耗时 |
+|:-----|:--------|:--------|:-------------------|:---------|
+| **KdV** | $u_t + 6uu_x + u_{xxx} = 0$ | 0.0966 | 1.54×10⁻⁷ | 8.7s |
+| **Sine-Gordon** | $u_{tt} - u_{xx} + \sin(u) = 0$ | 0.0666 | 2.63×10⁻⁷ | 6.2s |
+| **Allen-Cahn** | $u_t - 0.0001u_{xx} + 5(u^3-u) = 0$ | 0.943 | 4.57×10⁻⁶ | 6.2s |
 
-### 示例详解
+**训练配置**：网络 [2,50,50,50,1]、batch_size=64、Adam(lr=1e-3)、tanh 激活、h=1e-3、1000 次迭代。
 
-#### Poisson（一维方程）
+**可执行文件大小**：152K-246K（静态链接 libpinn.a，不含 LibTorch）。
 
-- 启动命令：
+---
 
-  ```bash
-  ./build/examples/example_poisson [可选配置路径]
-  ```
+## 🧪 技术细节
 
-- 默认配置：`config/pinn_config.json`
-- PDE：$u''(x) + \pi^2 \sin(\pi x) = 0$，边界条件 $u(0)=u(1)=0$
-- 数据采样：区间 $[0,1]$ 上均匀 256 个评估点；训练点数由配置决定
-- 可视化输出：`sandbox/poisson/poisson_epoch_XXXXX.csv`
-- 典型配置片段：
+### C++ 特性使用清单
 
-  ```json
-  {
-    "model": { "layers": [1, 16, 16, 16, 1] },
-    "training": { "epochs": 5, "batch_size": 96 },
-    "data": { "n_interior": 96, "n_boundary": 24 }
-  }
-  ```
+虽然称为"纯 C++"，项目实际大量使用现代 C++17 特性：
 
-#### Advection（一维空间 + 时间）
+| 特性类别 | 使用情况 |
+|:---------|:--------|
+| **面向对象** | 类（`class Tensor`）、继承（`AdamOptimizer : public Optimizer`）、虚函数 |
+| **模板** | `template<typename T> data_ptr()`、泛型编程 |
+| **STL 容器** | `std::vector`、`std::string`、`std::pair`、`std::function` |
+| **现代特性** | `auto`、lambda 表达式、`if constexpr`（C++17）、RAII |
+| **标准库** | `<algorithm>`、`<cmath>`、`<filesystem>`、`<regex>` |
+| **异常处理** | `throw std::runtime_error(...)` |
 
-- 启动命令：
+以上特性均为 C++ 特有，标准 C 语言不支持。项目中的「纯 C」仅指不依赖外部深度学习框架。
 
-  ```bash
-  ./build/examples/example_advection [可选配置路径]
-  ```
+### 实现特点
 
-- 默认配置：`config/advection_config.json`
-- PDE：$u_t + c u_x = 0$，解析解 $u(x,t)=\sin(\pi[x-ct])$
-- 特性：矩形区域 $(x,t)\in[0,1]^2$，配置文件中 `pde.velocity` 控制速度 $c$
-- 可视化输出：`sandbox/advection/advection_epoch_XXXXX.csv`，包含网格化的 `(x,t)` 点及预测/解析值
-- 默认采样：64×64 规则网格用于可视化
+1. **内存布局**：Row-Major 连续存储（`std::vector<std::byte>` 底层缓冲）
+2. **GEMM**：手写三重循环矩阵乘法，支持 OpenMP 并行（`#pragma omp parallel for`），可选 CBLAS 后端
+3. **激活函数**：通过 `std::function` 存储（存在间接调用开销），运行时从字符串映射选择
+4. **优化器内存**：Adam 一阶/二阶矩使用 `malloc/free` 管理扁平数组
+5. **张量内存**：RAII 管理（`std::vector<std::byte>` 自动释放）
+6. **虚函数**：`Optimizer` 基类使用虚函数分派（`step()`、`zero_grad()` 等）
 
-#### Burgers（粘性方程）
+### 与 PyTorch 方案的区别
 
-- 启动命令：
+| 对比项 | C-PINN (纯 C++) | PyTorch (Python) |
+|:-------|:---------------|:----------------|
+| **运行时** | 编译型，无解释器 | Python 解释器 + C++ 后端 |
+| **部署** | 单个可执行文件（~200K） | Python 环境 + PyTorch 库 |
+| **调试** | GDB/LLDB 原生 | Python 栈 + C++ 混合栈 |
+| **微分方式** | 有限差分 + 手动反向传播 | Autograd 计算图 |
+| **功能丰富度** | 基础 MLP、有限差分 | 完整 DL 生态 |
 
-  ```bash
-  ./build/examples/example_burgers [可选配置路径]
-  ```
+> ⚠️ 此表仅列出结构差异，未做性能对比。两者定位不同，不适合直接比较速度。
 
-- 默认配置：`config/burgers_config.json`
-- PDE：$u_t + u u_x - \nu u_{xx} = f(x,t)$，默认粘性系数 `nu = 0.01`
-- 特性：同样在 $(x,t)\in[0,1]^2$ 上训练，强制项和边界条件按照解析解构造
-- 可视化输出：`sandbox/burgers/burgers_epoch_XXXXX.csv`
-- 默认可视化网格：64×64
+---
 
-### 配置与扩展
+## 🗺️ 开发路线图
 
-- 命令行覆盖：运行示例时附带自定义配置路径，例如 `./build/examples/example_burgers ../my_configs/burgers.json`
-- 环境变量覆盖：`PINN_CONFIG=/path/to/custom.json ./build/examples/example_advection`
-- 内置 JSON 字段说明：
-  - `model.layers`：网络层宽（含输入/输出）
-  - `training.batch_size | epochs | learning_rate | use_lbfgs_after` 等训练参数
-  - `data.n_interior | n_boundary`：每个 epoch 的采样数量
-  - `pde.*`：各示例特有的 PDE 参数，如 advection 的 `velocity`、burgers 的 `nu`
-- 自定义示例：复制现有 `examples/*.cpp`，在 `CMakeLists.txt` 的 `add_subdirectory(examples)` 中注册新目标即可。
+- [x] **Phase 1**: 张量库（加减乘除、GEMM、切片、广播）
+- [x] **Phase 2**: 神经网络前向传播（Fnn, Linear, Activation）
+- [x] **Phase 3**: 手动反向传播（梯度计算、链式法则）
+- [x] **Phase 4**: 优化器（Adam、L-BFGS）
+- [x] **Phase 5**: 模型持久化（二进制 Checkpoint）
+- [x] **Phase 6**: PINN 求解验证（KdV, Sine-Gordon, Allen-Cahn）
+- [ ] **Phase 7**: 轻量级自动微分引擎（计算图 + 自动反向传播）
+- [ ] **Phase 8**: 更多架构（ResNet, U-Net, FNO）
+- [ ] **Phase 9**: GPU 加速（CUDA Kernel / Vulkan Compute）
+- [ ] **Phase 10**: Python 绑定（pybind11）
 
-### GPU 选择
+---
 
-- 使用环境变量限制可见设备：
+## 📖 相关文档
 
-  ```bash
-  CUDA_VISIBLE_DEVICES=2 ./build/examples/example_poisson
-  ```
+- [docs/pure_c_vs_torch.md](docs/pure_c_vs_torch.md) - 详细技术对比
+- [docs/requirements.md](docs/requirements.md) - 需求文档
+- [CLAUDE.md](CLAUDE.md) - AI 开发指南
 
-- 程序内部永远创建 `torch::Device(torch::kCUDA, 0)`，因此上述命令会把宿主机的 GPU 2 暴露为进程内的 CUDA 设备 0。
-- 需要切换不同 GPU 时，直接调整 `CUDA_VISIBLE_DEVICES` 的值；未设置或没有可见 GPU 时自动回退到 CPU。
+---
 
-### 可视化导出与绘图
+## 🤝 贡献指南
 
-- CSV 位置：相对于程序启动时的工作目录创建 `sandbox/<示例名>/`；若从 `build/` 目录运行，文件会位于 `build/sandbox/...`。建议总是在仓库根目录运行，使路径与脚本默认值一致。
-- CSV 结构：
-  - 坐标列：`x0,x1,...`
-  - 模型输出：`pred0,...`
-  - 若提供解析解：`target0,...`
-  - 绝对误差：`abs_error0,...`
-- 绘图脚本：
+欢迎贡献！请遵循以下步骤：
 
-  ```bash
-  pip install matplotlib pandas numpy
-  python scripts/plot_csv.py sandbox/poisson/poisson_epoch_00004.csv --output poisson.png
-  python scripts/plot_csv.py sandbox/advection/advection_epoch_00004.csv --dim 2 --output advection.png
-  ```
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 开启 Pull Request
 
-- 若 CSV 位于 `build/sandbox/...`，请在命令行中按实际路径替换。
-- 生成图片后可用于对比预测与解析解，也能用于误差热力图等二次分析。
+---
 
-### 训练输出与断点
+## 📜 许可证
 
-- 训练日志：每个 epoch 结束后打印损失值，便于跟踪收敛情况。
-- 断点：默认写入 `ckpt/` 目录，可在配置文件里调整保存策略或频率。
-- 扩展建议：
-  - 需要更多监控指标时，可在 `utils::CallbackRegistry` 中注册新的回调。
-  - 若要启用 LBFGS 二阶段优化，可在 `TrainingOptions.schedule.switch_to_lbfgs_epoch` 设置切换 epoch，并在 `Trainer` 中补充相应实现。
+本项目采用 **MIT License** 开源，详见 [LICENSE](LICENSE) 文件。
 
+---
+
+## 🙏 致谢
+
+- 设计灵感来自 [DeepXDE](https://github.com/lululxvi/deepxde)
+- 优化器实现参考 [Adam 论文](https://arxiv.org/abs/1412.6980)
+- 感谢 [nlohmann/json](https://github.com/nlohmann/json) 提供的 JSON 库
+
+---
+
+## 📧 联系方式
+
+如有问题或建议，请通过以下方式联系：
+
+- 提交 [Issue](https://github.com/your-username/c-pinn/issues)
+- 发起 [Discussion](https://github.com/your-username/c-pinn/discussions)
+
+---
+
+<div align="center">
+
+**Star ⭐ 本项目** 如果你觉得有帮助！
+
+Made with ❤️ using C++17
+
+</div>

@@ -10,10 +10,10 @@ namespace {
 Tensor compute_gradients(const Tensor& outputs, Tensor inputs) {
     const auto batch = outputs.size(0);
     const auto dim = inputs.size(1);
-    auto gradients = torch::zeros({batch, dim}, inputs.options());
+    auto gradients = Tensor::zeros({batch, dim});
 
     for (int64_t i = 0; i < batch; ++i) {
-        auto grad_outputs = torch::zeros_like(outputs);
+        auto grad_outputs = Tensor::zeros_like(outputs);
         grad_outputs[i] = 1.0;
         auto grad = torch::autograd::grad({outputs}, {inputs}, {grad_outputs}, true, true)[0];
         gradients.select(0, i).copy_(grad.select(0, i));
@@ -24,13 +24,13 @@ Tensor compute_gradients(const Tensor& outputs, Tensor inputs) {
 Tensor compute_hessian(const Tensor& outputs, Tensor inputs) {
     const auto batch = outputs.size(0);
     const auto dim = inputs.size(1);
-    auto hessian = torch::zeros({batch, dim, dim}, inputs.options());
+    auto hessian = Tensor::zeros({batch, dim, dim});
 
     auto gradients = compute_gradients(outputs, inputs);
     for (int64_t axis = 0; axis < dim; ++axis) {
         auto component = gradients.select(1, axis);
         for (int64_t i = 0; i < batch; ++i) {
-            auto grad_outputs = torch::zeros_like(component);
+            auto grad_outputs = Tensor::zeros_like(component);
             grad_outputs[i] = 1.0;
             auto second = torch::autograd::grad({component}, {inputs}, {grad_outputs}, true, true)[0];
             hessian.select(0, i).select(0, axis).copy_(second.select(0, i));
@@ -73,9 +73,9 @@ LossBreakdown compute_losses(const pde::Pde& pde,
     LossBreakdown breakdown;
 
     auto residual = compute_pde_residual(pde, network, interior_points);
-    breakdown.pde_loss = torch::mean(torch::pow(residual, 2));
+    breakdown.pde_loss = residual.pow(2.0).mean_all();
 
-    Tensor boundary_loss = torch::zeros({}, residual.options());
+    Tensor boundary_loss = Tensor::scalar(0.0);
     Tensor boundary_predictions;
     if (!boundary_conditions.empty() && boundary_points.numel() > 0) {
         // Ensure boundary points track gradients for Neumann/Robin BCs
@@ -94,9 +94,9 @@ LossBreakdown compute_losses(const pde::Pde& pde,
         if (!boundary_predictions.defined()) {
             boundary_predictions = network->forward(boundary_points);
         }
-        breakdown.data_loss = torch::mse_loss(boundary_predictions, boundary_targets, torch::Reduction::Mean);
+        breakdown.data_loss = pinn::core::mse_loss(boundary_predictions, boundary_targets);
     } else {
-        breakdown.data_loss = torch::zeros({}, residual.options());
+        breakdown.data_loss = Tensor::scalar(0.0);
     }
 
     breakdown.total_loss = pde_weight * breakdown.pde_loss + boundary_weight * breakdown.boundary_loss +

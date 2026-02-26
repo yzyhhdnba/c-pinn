@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "pinn/core/rng.hpp"
 #include "pinn/types.hpp"
 
 namespace pinn::geometry {
@@ -18,7 +19,7 @@ class Geometry {
     virtual Tensor boundary_normal(const Tensor& x) const = 0;
 
     virtual Tensor uniform_points(int n_per_dim) const = 0;
-    virtual Tensor random_points(int n, torch::Generator& gen) const = 0;
+    virtual Tensor random_points(int n, pinn::core::Rng& rng) const = 0;
 
     virtual std::pair<Tensor, Tensor> bounds() const = 0;
 

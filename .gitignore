@@ -1,6 +1,24 @@
 build/
 sandbox/
 .vscode/
+
+# macOS / Python temporary files
+.DS_Store
+__pycache__/
+*.pyc
+
+# Runtime checkpoints and generated test outputs
+checkpoints_pure_c/
+sandbox/**/*.csv
+sandbox/**/*.log
+
+# Benchmark generated non-code artifacts (keep benchmark scripts)
+benchmark/torch_results.json
+benchmark/report.md
+benchmark/data_*.csv
+benchmark/*.log
+benchmark/*.txt
+
 # Poisson related images
 # Ignore images stored in sandbox/poisson
 sandbox/poisson/*.png

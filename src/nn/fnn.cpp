@@ -1,13 +1,17 @@
+
+// Pure C backend neural network implementation.
+//
+// This file intentionally contains no LibTorch/torch::nn code.
+
 #include "pinn/nn/fnn.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
-#include <torch/torch.h>
-
-#include "pinn/nn/initialization.hpp"
+#include "pinn/core/rng.hpp"
 
 namespace pinn::nn {
 
@@ -15,6 +19,18 @@ namespace {
 std::string to_lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value;
+}
+
+void ensure_2d(const Tensor& x) {
+    if (!x.defined()) {
+        throw std::runtime_error("Fnn::forward received undefined tensor");
+    }
+    if (x.dim() != 2) {
+        throw std::runtime_error("Fnn::forward expects 2D tensor (batch, features)");
+    }
+    if (x.dtype() != pinn::core::DType::kFloat64) {
+        throw std::runtime_error("Fnn::forward currently supports float64 tensors only");
+    }
 }
 }  // namespace
 
@@ -50,296 +66,183 @@ std::string to_string(NetworkArchitecture arch) {
     }
 }
 
-FnnImpl::FnnImpl(std::vector<int> layer_sizes,
-                 ActivationFn activation,
-                 InitType init_type,
-                 Scalar bias_init,
-                 int64_t seed,
-                 ArchitectureConfig arch_config)
+Linear::Linear(int in_features, int out_features, InitType init_type, Scalar bias_init, pinn::core::Rng& rng)
+    : in_features_{in_features}, out_features_{out_features} {
+    if (in_features_ <= 0 || out_features_ <= 0) {
+        throw std::invalid_argument{"Linear requires positive in/out features"};
+    }
+    initialize_linear_params(weight_t_, bias_, in_features_, out_features_, init_type, bias_init, rng);
+    
+    // Initialize gradients
+    grad_weight_ = Tensor::zeros_like(weight_t_);
+    grad_bias_ = Tensor::zeros_like(bias_);
+}
+
+Tensor Linear::forward(const Tensor& x) const {
+    ensure_2d(x);
+    if (x.size(1) != in_features_) {
+        throw std::runtime_error("Linear::forward input feature mismatch");
+    }
+    const int m = static_cast<int>(x.size(0));
+    const int k = static_cast<int>(x.size(1));
+    const int n = out_features_;
+
+    Tensor out({m, n});
+    auto* A = const_cast<double*>(x.data_ptr<double>());
+    auto* B = const_cast<double*>(weight_t_.data_ptr<double>());
+    auto* C = out.data_ptr<double>();
+
+    // C = A * B
+    (void)gemm(reinterpret_cast<TYPE_VAL*>(A), reinterpret_cast<TYPE_VAL*>(B), reinterpret_cast<TYPE_VAL*>(C), m, k, n);
+
+    // Add bias (row-major)
+    const double* b = bias_.data_ptr<double>();
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            C[i * n + j] += b[j];
+        }
+    }
+
+    return out;
+}
+
+Tensor Linear::backward(const Tensor& grad_output, const Tensor& input) {
+    // grad_output: [batch, out_features]
+    // input: [batch, in_features]
+    
+    // grad_input = grad_output @ weight.T
+    // grad_weight = input.T @ grad_output
+    // grad_bias = sum(grad_output, dim=0)
+
+    // 1. grad_input
+    Tensor grad_input = grad_output.matmul(weight_t_.transpose(0, 1));
+
+    // 2. grad_weight
+    Tensor dw = input.transpose(0, 1).matmul(grad_output);
+    // Accumulate gradients? Or overwrite? Standard is accumulate (zero_grad clears it).
+    // But here we might want to just set it if we assume zero_grad was called.
+    // Let's accumulate.
+    // Check shapes
+    if (grad_weight_.numel() != dw.numel()) {
+        grad_weight_ = dw; // First time or shape mismatch (shouldn't happen)
+    } else {
+        grad_weight_ = grad_weight_ + dw;
+    }
+
+    // 3. grad_bias
+    Tensor db = grad_output.sum(0);
+    if (grad_bias_.numel() != db.numel()) {
+        grad_bias_ = db;
+    } else {
+        grad_bias_ = grad_bias_ + db;
+    }
+
+    return grad_input;
+}
+
+Fnn::Fnn(std::vector<int> layer_sizes,
+         ActivationFn activation,
+         ActivationFn activation_deriv,
+         InitType init_type,
+         Scalar bias_init,
+         int64_t seed,
+         ArchitectureConfig arch_config)
     : layer_sizes_{std::move(layer_sizes)},
       activation_{std::move(activation)},
+      activation_deriv_{std::move(activation_deriv)},
       init_type_{init_type},
       bias_init_{bias_init},
-      input_dim_{0},
-      output_dim_{0},
       arch_config_{std::move(arch_config)},
-      architecture_{arch_config_.architecture},
-      use_adaptive_activation_{arch_config_.use_adaptive_activation},
-      adaptive_activation_init_{arch_config_.adaptive_activation_init},
-      activation_slots_{0},
-      resnet_block_count_{0},
-      cnn_flatten_dim_{0},
-      transformer_embed_dim_{arch_config_.transformer_embed_dim} {
+      architecture_{arch_config_.architecture} {
     if (layer_sizes_.size() < 2) {
         throw std::invalid_argument{"Network requires at least input and output layers"};
     }
     input_dim_ = layer_sizes_.front();
     output_dim_ = layer_sizes_.back();
 
-    if (seed >= 0) {
-        torch::manual_seed(seed);
+    if (architecture_ != NetworkArchitecture::kFnn) {
+        throw std::runtime_error("Pure-C backend currently supports only plain FNN architecture");
     }
 
-    layers_ = register_module("layers", torch::nn::ModuleList());
+    pinn::core::Rng rng(seed >= 0 ? static_cast<uint64_t>(seed) : 0x9e3779b97f4a7c15ULL);
 
-    switch (architecture_) {
-        case NetworkArchitecture::kFnn:
-            build_plain_network();
-            break;
-        case NetworkArchitecture::kResNet:
-            build_resnet_network();
-            break;
-        case NetworkArchitecture::kCnn:
-            build_cnn_network();
-            break;
-        case NetworkArchitecture::kTransformer:
-            build_transformer_network();
-            break;
-        default:
-            TORCH_CHECK(false, "Unsupported network architecture");
-    }
-
-    torch::optional<Scalar> bias{bias_init_};
-    apply_initialization(*this, init_type_, bias);
-    initialize_adaptive_parameters();
-}
-
-Tensor FnnImpl::forward(const Tensor& x) {
-    switch (architecture_) {
-        case NetworkArchitecture::kFnn:
-            return forward_plain(x);
-        case NetworkArchitecture::kResNet:
-            return forward_resnet(x);
-        case NetworkArchitecture::kCnn:
-            return forward_cnn(x);
-        case NetworkArchitecture::kTransformer:
-            return forward_transformer(x);
-        default:
-            TORCH_CHECK(false, "Unsupported network architecture");
-    }
-}
-
-void FnnImpl::build_plain_network() {
+    layers_.clear();
+    layers_.reserve(layer_sizes_.size() - 1);
     for (size_t i = 0; i + 1 < layer_sizes_.size(); ++i) {
-        auto linear = torch::nn::Linear(torch::nn::LinearOptions(layer_sizes_[i], layer_sizes_[i + 1]));
-        layers_->push_back(linear);
-    }
-    activation_slots_ = layers_->size() > 0 ? layers_->size() - 1 : 0;
-}
-
-void FnnImpl::build_resnet_network() {
-    if (layer_sizes_.size() < 3) {
-        throw std::invalid_argument{"ResNet architecture requires at least one hidden layer"};
-    }
-    const int hidden_dim = layer_sizes_[1];
-    if (hidden_dim <= 0) {
-        throw std::invalid_argument{"ResNet hidden dimension must be positive"};
-    }
-
-    resnet_input_ = register_module("resnet_input", torch::nn::Linear(torch::nn::LinearOptions(input_dim_, hidden_dim)));
-    resnet_output_ = register_module("resnet_output", torch::nn::Linear(torch::nn::LinearOptions(hidden_dim, output_dim_)));
-    resnet_blocks_ = register_module("resnet_blocks", torch::nn::ModuleList());
-
-    resnet_block_count_ = arch_config_.resnet_blocks > 0 ? arch_config_.resnet_blocks : static_cast<int>(layer_sizes_.size()) - 2;
-    if (resnet_block_count_ <= 0) {
-        resnet_block_count_ = 1;
-    }
-
-    for (int i = 0; i < resnet_block_count_; ++i) {
-        auto fc1 = torch::nn::Linear(torch::nn::LinearOptions(hidden_dim, hidden_dim));
-        auto fc2 = torch::nn::Linear(torch::nn::LinearOptions(hidden_dim, hidden_dim));
-        resnet_blocks_->push_back(fc1);
-        resnet_blocks_->push_back(fc2);
-    }
-
-    activation_slots_ = 1 + static_cast<size_t>(resnet_block_count_) + (resnet_block_count_ > 1 ? resnet_block_count_ - 1 : 0);
-}
-
-void FnnImpl::build_cnn_network() {
-    if (input_dim_ <= 0) {
-        throw std::invalid_argument{"CNN architecture requires positive input dimension"};
-    }
-
-    const int cnn_layers = std::max(1, arch_config_.cnn_layers);
-    const int channels = std::max(1, arch_config_.cnn_channels);
-    int kernel = std::max(1, arch_config_.cnn_kernel_size);
-    if (kernel > input_dim_) {
-        kernel = input_dim_;
-    }
-
-    cnn_convs_ = register_module("cnn_convs", torch::nn::ModuleList());
-    int in_channels = 1;
-    for (int i = 0; i < cnn_layers; ++i) {
-        auto conv = torch::nn::Conv1d(torch::nn::Conv1dOptions(in_channels, channels, kernel).padding(kernel / 2));
-        cnn_convs_->push_back(conv);
-        in_channels = channels;
-    }
-
-    cnn_flatten_dim_ = in_channels * input_dim_;
-
-    if (layer_sizes_.size() < 2) {
-        throw std::invalid_argument{"CNN head requires at least output layer"};
-    }
-
-    cnn_head_ = register_module("cnn_head", torch::nn::ModuleList());
-    int prev_dim = cnn_flatten_dim_;
-    for (size_t i = 1; i < layer_sizes_.size(); ++i) {
-        auto linear = torch::nn::Linear(torch::nn::LinearOptions(prev_dim, layer_sizes_[i]));
-        cnn_head_->push_back(linear);
-        prev_dim = layer_sizes_[i];
-    }
-
-    const size_t head_activations = cnn_head_->size() > 0 ? cnn_head_->size() - 1 : 0;
-    activation_slots_ = static_cast<size_t>(cnn_layers) + head_activations;
-}
-
-void FnnImpl::build_transformer_network() {
-    if (input_dim_ <= 0) {
-        throw std::invalid_argument{"Transformer architecture requires positive input dimension"};
-    }
-
-    transformer_embed_dim_ = arch_config_.transformer_embed_dim > 0 ? arch_config_.transformer_embed_dim
-                                                                    : (layer_sizes_.size() > 1 ? layer_sizes_[1] : 64);
-    if (transformer_embed_dim_ % std::max(1, arch_config_.transformer_heads) != 0) {
-        throw std::invalid_argument{"Transformer embedding dimension must be divisible by number of heads"};
-    }
-
-    transformer_embedding_ = register_module("transformer_embedding",
-                                             torch::nn::Linear(torch::nn::LinearOptions(1, transformer_embed_dim_)));
-
-    auto encoder_layer = torch::nn::TransformerEncoderLayer(
-        torch::nn::TransformerEncoderLayerOptions(transformer_embed_dim_, std::max(1, arch_config_.transformer_heads))
-            .dim_feedforward(std::max(arch_config_.transformer_ffn_dim, transformer_embed_dim_)));
-    const int encoder_layers = std::max(1, arch_config_.transformer_layers);
-    transformer_encoder_ = register_module("transformer_encoder", torch::nn::TransformerEncoder(encoder_layer, encoder_layers));
-
-    if (layer_sizes_.size() < 2) {
-        throw std::invalid_argument{"Transformer head requires at least output layer"};
-    }
-
-    transformer_head_ = register_module("transformer_head", torch::nn::ModuleList());
-    int prev_dim = transformer_embed_dim_;
-    for (size_t i = 1; i < layer_sizes_.size(); ++i) {
-        auto linear = torch::nn::Linear(torch::nn::LinearOptions(prev_dim, layer_sizes_[i]));
-        transformer_head_->push_back(linear);
-        prev_dim = layer_sizes_[i];
-    }
-
-    activation_slots_ = transformer_head_->size() > 0 ? transformer_head_->size() - 1 : 0;
-}
-
-void FnnImpl::initialize_adaptive_parameters() {
-    adaptive_scales_.clear();
-    if (!use_adaptive_activation_ || activation_slots_ == 0) {
-        return;
-    }
-
-    for (size_t i = 0; i < activation_slots_; ++i) {
-        auto name = "adaptive_scale_" + std::to_string(i);
-        auto param = register_parameter(name, torch::full({1}, static_cast<float>(adaptive_activation_init_)));
-        adaptive_scales_.push_back(param);
+        layers_.emplace_back(layer_sizes_[i], layer_sizes_[i + 1], init_type_, bias_init_, rng);
     }
 }
 
-Tensor FnnImpl::forward_plain(const Tensor& x) {
-    TORCH_CHECK(layers_->size() >= 2, "FNN requires at least two layers");
+Fnn::Fnn(std::vector<int> layer_sizes,
+         const std::string& activation_name,
+         InitType init_type,
+         Scalar bias_init,
+         int64_t seed,
+         ArchitectureConfig arch_config)
+    : Fnn(layer_sizes,
+          activation_from_string(activation_name),
+          activation_derivative_from_string(activation_name),
+          init_type,
+          bias_init,
+          seed,
+          arch_config) {}
+
+Tensor Fnn::forward(const Tensor& x) {
+    ensure_2d(x);
+    if (x.size(1) != input_dim_) {
+        throw std::runtime_error("Fnn::forward input feature mismatch");
+    }
+
+    inputs_.clear();
+    pre_activations_.clear(); // Not used yet but good practice
+
     Tensor out = x;
-    const size_t last_index = layers_->size() - 1;
-    size_t activation_slot = 0;
-    for (size_t i = 0; i < layers_->size(); ++i) {
-        auto* linear = (*layers_)[i]->as<torch::nn::LinearImpl>();
-        TORCH_CHECK(linear != nullptr, "Expected Linear layer");
-        out = linear->forward(out);
-        if (i != last_index) {
-            out = apply_activation(out, activation_slot++);
+    for (size_t i = 0; i < layers_.size(); ++i) {
+        inputs_.push_back(out); // Cache input to layer i
+        out = layers_[i].forward(out);
+        if (i + 1 != layers_.size()) {
+            // pre_activations_.push_back(out); 
+            out = activation_(out);
         }
     }
     return out;
 }
 
-Tensor FnnImpl::forward_resnet(const Tensor& x) {
-    TORCH_CHECK(resnet_input_ && resnet_output_ && resnet_blocks_, "ResNet modules are not initialized");
-    Tensor out = resnet_input_->forward(x);
-    size_t activation_slot = 0;
-    out = apply_activation(out, activation_slot++);
-
-    for (int block = 0; block < resnet_block_count_; ++block) {
-        const size_t base = static_cast<size_t>(block) * 2;
-        auto* fc1 = (*resnet_blocks_)[base]->as<torch::nn::LinearImpl>();
-        auto* fc2 = (*resnet_blocks_)[base + 1]->as<torch::nn::LinearImpl>();
-        TORCH_CHECK(fc1 && fc2, "ResNet block expects Linear layers");
-        auto residual = out;
-        auto z = fc1->forward(out);
-        z = apply_activation(z, activation_slot++);
-        z = fc2->forward(z);
-        out = z + residual;
-        if (block + 1 < resnet_block_count_) {
-            out = apply_activation(out, activation_slot++);
+Tensor Fnn::backward(const Tensor& grad_output) {
+    Tensor grad = grad_output;
+    
+    // Iterate backwards
+    for (int i = static_cast<int>(layers_.size()) - 1; i >= 0; --i) {
+        // If not last layer, backprop through activation
+        if (i + 1 != static_cast<int>(layers_.size())) {
+            // Derivative of activation
+            // We need the input to the activation function.
+            // The input to activation was the output of layer[i].forward().
+            // We didn't cache it explicitly, but we can recompute or cache it.
+            // Let's use the cached input to layer[i+1] which IS the output of activation(layer[i]).
+            // Wait, activation input is linear output.
+            // activation output is input to next layer.
+            // So inputs_[i+1] is activation(linear_out).
+            // If we use Tanh, derivative is 1 - y^2. So we can use inputs_[i+1].
+            // If we use ReLU, we need x.
+            // To be safe and general, we should cache pre-activation.
+            // Let's recompute it for now to save memory? No, cache is better.
+            // I'll modify forward to cache pre-activations?
+            // Actually, let's just recompute linear forward for now? No, that's slow.
+            // Let's assume Tanh for now or use the fact that we have inputs_[i+1] which is y.
+            // But `activation_deriv_` might expect x.
+            // My `make_tanh_deriv` expects x (input to tanh).
+            // So I need the output of layer[i].
+            // Let's recompute it: layer[i].forward(inputs_[i]).
+            Tensor linear_out = layers_[i].forward(inputs_[i]);
+            Tensor d_act = activation_deriv_(linear_out);
+            grad = grad * d_act; // Element-wise mul
         }
+        
+        // Backprop through linear
+        grad = layers_[i].backward(grad, inputs_[i]);
     }
-
-    return resnet_output_->forward(out);
-}
-
-Tensor FnnImpl::forward_cnn(const Tensor& x) {
-    TORCH_CHECK(cnn_convs_ && cnn_head_, "CNN modules are not initialized");
-    TORCH_CHECK(x.dim() == 2, "CNN expects 2D input (batch, features)");
-
-    Tensor out = x.unsqueeze(1);
-    size_t activation_slot = 0;
-    for (const auto& module : *cnn_convs_) {
-        auto* conv = module->as<torch::nn::Conv1dImpl>();
-        TORCH_CHECK(conv != nullptr, "CNN conv block expects Conv1d");
-        out = conv->forward(out);
-        out = apply_activation(out, activation_slot++);
-    }
-
-    out = out.flatten(1);
-    for (size_t i = 0; i < cnn_head_->size(); ++i) {
-        auto* linear = (*cnn_head_)[i]->as<torch::nn::LinearImpl>();
-        TORCH_CHECK(linear != nullptr, "CNN head expects Linear layers");
-        out = linear->forward(out);
-        if (i + 1 != cnn_head_->size()) {
-            out = apply_activation(out, activation_slot++);
-        }
-    }
-
-    return out;
-}
-
-Tensor FnnImpl::forward_transformer(const Tensor& x) {
-    TORCH_CHECK(transformer_embedding_ && transformer_encoder_ && transformer_head_,
-                "Transformer modules are not initialized");
-    TORCH_CHECK(x.dim() == 2, "Transformer expects 2D input (batch, features)");
-
-    auto batch = x.size(0);
-    auto n_features = x.size(1);
-    auto tokens = x.unsqueeze(-1);
-    tokens = tokens.view({batch * n_features, 1});
-    tokens = transformer_embedding_->forward(tokens);
-    tokens = tokens.view({batch, n_features, transformer_embed_dim_}).transpose(0, 1);
-    auto encoded = transformer_encoder_->forward(tokens).transpose(0, 1);
-    auto pooled = encoded.mean(1);
-
-    Tensor out = pooled;
-    size_t activation_slot = 0;
-    for (size_t i = 0; i < transformer_head_->size(); ++i) {
-        auto* linear = (*transformer_head_)[i]->as<torch::nn::LinearImpl>();
-        TORCH_CHECK(linear != nullptr, "Transformer head expects Linear layers");
-        out = linear->forward(out);
-        if (i + 1 != transformer_head_->size()) {
-            out = apply_activation(out, activation_slot++);
-        }
-    }
-
-    return out;
-}
-
-Tensor FnnImpl::apply_activation(const Tensor& value, size_t slot) const {
-    if (use_adaptive_activation_ && slot < adaptive_scales_.size()) {
-        return activation_(adaptive_scales_[slot] * value);
-    }
-    return activation_(value);
+    return grad;
 }
 
 }  // namespace pinn::nn

@@ -10,7 +10,7 @@ DirichletBC::DirichletBC(const geometry::Geometry& geom, ValueFunction value_fn)
 Tensor DirichletBC::loss(nn::Fnn& network, const Tensor& points, const Tensor& predicted) const {
     (void)network;
     auto target = value_fn_(points);
-    return torch::mse_loss(predicted, target, torch::Reduction::Mean);
+    return pinn::core::mse_loss(predicted, target);
 }
 
 NeumannBC::NeumannBC(const geometry::Geometry& geom, FluxFunction flux_fn)
@@ -21,14 +21,14 @@ Tensor NeumannBC::loss(nn::Fnn& network, const Tensor& points, const Tensor& pre
     auto target = flux_fn_(points);
     
     // Compute normal derivative: d(u)/dn = grad(u) . n
-    auto grad_outputs = torch::ones_like(predicted);
+    auto grad_outputs = Tensor::ones_like(predicted);
     auto grads = torch::autograd::grad({predicted}, {points}, {grad_outputs}, true, true)[0];
     auto normals = geometry_.boundary_normal(points);
     
     // Dot product along dimension 1
     auto normal_derivs = (grads * normals).sum(1, true);
     
-    return torch::mse_loss(normal_derivs, target, torch::Reduction::Mean);
+    return pinn::core::mse_loss(normal_derivs, target);
 }
 
 PeriodicBC::PeriodicBC(const geometry::Geometry& geom, MappingFunction mapping_fn, Scalar weight)
@@ -37,7 +37,7 @@ PeriodicBC::PeriodicBC(const geometry::Geometry& geom, MappingFunction mapping_f
 Tensor PeriodicBC::loss(nn::Fnn& network, const Tensor& points, const Tensor& predicted) const {
     auto mapped_points = mapping_fn_(points);
     auto mapped_predictions = network->forward(mapped_points);
-    auto periodic_loss = torch::mse_loss(predicted, mapped_predictions, torch::Reduction::Mean);
+    auto periodic_loss = pinn::core::mse_loss(predicted, mapped_predictions);
     if (weight_ == 1.0) {
         return periodic_loss;
     }

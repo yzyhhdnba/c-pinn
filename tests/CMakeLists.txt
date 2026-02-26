@@ -1,5 +1,5 @@
 add_executable(unit_tests
-    placeholder.cpp
+    tensor_test.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE pinn)

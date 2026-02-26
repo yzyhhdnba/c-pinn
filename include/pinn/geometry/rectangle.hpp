@@ -15,7 +15,7 @@ class Rectangle : public Geometry {
     Tensor boundary_normal(const Tensor& x) const override;
 
     Tensor uniform_points(int n_per_dim) const override;
-    Tensor random_points(int n, torch::Generator& gen) const override;
+    Tensor random_points(int n, pinn::core::Rng& rng) const override;
 
     std::pair<Tensor, Tensor> bounds() const override;
 

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <torch/torch.h>
+#include "pinn/core/tensor.hpp"
 
 #include <vector>
 
 namespace pinn {
 
-using Tensor = torch::Tensor;
+using Tensor = core::Tensor;
 using TensorList = std::vector<Tensor>;
 using Scalar = double;
 
