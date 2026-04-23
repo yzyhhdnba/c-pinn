@@ -4,11 +4,15 @@
 
 ## 文件说明
 
-- [pure_cpp_pinn_flow.md](/Users/hhd/Desktop/test/c-pinn/docs/compute_flows/pure_cpp_pinn_flow.md)  
+- [pure_cpp_pinn_flow.md](./pure_cpp_pinn_flow.md)  
   纯 C++ 主训练链路：输入采样、FNN 层级、有限差分 stencil、PDE residual、反向传播与参数更新。
 
-- [autodiff_matrix_flow.md](/Users/hhd/Desktop/test/c-pinn/docs/compute_flows/autodiff_matrix_flow.md)  
+- [autodiff_matrix_flow.md](./autodiff_matrix_flow.md)  
   `examples/autodiff/matrix_graph.cpp` 中 mini autodiff PINN 原型：`Node` 图、`VarMatrix` 流、`matmul` 层级、PDE 高阶导链路。
+
+- [assets/pinn_overall_shape_flow.svg](./assets/pinn_overall_shape_flow.svg)  
+  **端到端总流程图（带 shape 的层级数据流）**：采样 → 7 点 stencil 构造 → 共享 FNN 前向（4 层，逐层标注 W/b 与中间特征 shape）→ KdV PDE residual 与 loss → 手工链式法则反向（逐层 grad_W/grad_b）→ Adam 参数更新。
+  ![pinn overall shape flow](./assets/pinn_overall_shape_flow.svg)
 
 ## 适用范围
 
