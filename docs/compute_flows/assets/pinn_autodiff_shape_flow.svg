@@ -1,0 +1,335 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2540" viewBox="0 0 1800 2540">
+<defs>
+<style>
+.bg { fill: #f8fafc; }
+.title { fill: #0f172a; font: 700 30px "PingFang SC","Microsoft YaHei",sans-serif; }
+.subtitle { fill: #475569; font: 500 15px "PingFang SC","Microsoft YaHei",sans-serif; }
+.phase { fill: #0f172a; font: 700 22px "PingFang SC","Microsoft YaHei",sans-serif; }
+.phase-sub { fill: #64748b; font: 500 14px "PingFang SC","Microsoft YaHei",sans-serif; }
+.node-title { fill: #1e293b; font: 700 16px "Courier New",monospace; text-anchor: middle; }
+.node-shape { fill: #64748b; font: 700 14px "Courier New",monospace; text-anchor: middle; }
+.op-text { fill: #334155; font: 700 20px "Courier New",monospace; text-anchor: middle; }
+.op-small { fill: #334155; font: 700 14px "Courier New",monospace; text-anchor: middle; }
+.layer-label { fill: #94a3b8; font: 700 28px "PingFang SC","Microsoft YaHei",sans-serif; opacity: 0.8; }
+.legend-txt { fill: #334155; font: 600 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+.note { fill: #475569; font: 500 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+.note-em { fill: #b91c1c; font: 700 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+.note-purple { fill: #7c3aed; font: 700 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+.tier { fill: #7c3aed; font: 700 22px "Courier New",monospace; opacity: 0.7; }
+</style>
+<marker id="arrowBlack" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/></marker>
+<marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/></marker>
+<marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/></marker>
+<marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ea580c"/></marker>
+</defs>
+<rect width="100%" height="100%" class="bg"/>
+<text x="40" y="52" class="title">C-PINN · autodiff 原型 · 端到端带 Shape 的层级数据流总图</text>
+<text x="42" y="82" class="subtitle">单点 (x, t) 建图 · TinyFNN({2, 4, 1}) · create_graph=true 嵌套求导 · 覆盖 建叶子 → 前向图 G0 → 一/二/三阶导图 G1/G2/G3 → residual → loss → backward → sgd_step 全链路</text>
+<rect x="1070" y="14" width="700" height="86" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="8"/>
+<rect x="1086" y="26" width="16" height="16" fill="#dcfce7" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1108" y="39" class="legend-txt">输入 / 叶子 Node</text>
+<rect x="1256" y="26" width="16" height="16" fill="#fef3c7" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1278" y="39" class="legend-txt">参数叶子 W/b (17 个)</text>
+<rect x="1426" y="26" width="16" height="16" fill="#eff6ff" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1448" y="39" class="legend-txt">中间线性 VarMatrix z</text>
+<rect x="1596" y="26" width="16" height="16" fill="#ede9fe" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1618" y="39" class="legend-txt">激活输出 a</text>
+<rect x="1086" y="66" width="16" height="16" fill="#d1fae5" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1108" y="79" class="legend-txt">标量 u(x, t)</text>
+<rect x="1256" y="66" width="16" height="16" fill="#fde68a" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1278" y="79" class="legend-txt">嵌套导数 u_t, u_x…</text>
+<rect x="1426" y="66" width="16" height="16" fill="#fed7aa" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1448" y="79" class="legend-txt">residual r</text>
+<rect x="1596" y="66" width="16" height="16" fill="#bbf7d0" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1618" y="79" class="legend-txt">loss 标量</text>
+<rect x="30" y="120" width="1740" height="200" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="148" class="phase">Phase A · 叶子 Node 建立 &amp; 单点输入矩阵 a</text>
+<text x="50" y="170" class="phase-sub">pts = vector&lt;pair&lt;double,double&gt;&gt; (长度 = samples) · 每一轮 iter 对每个 p_i 独立建一张子图；重点：x_i, t_i 本身就是带 requires_grad 的叶子 Node</text>
+<rect x="60" y="190" width="380" height="100" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="250" y="220" class="node-title">pts = [(x, t), ...]</text>
+<text x="250" y="248" class="node-shape">长度 = samples · 每个元素 ∈ ℝ²</text>
+<text x="250" y="272" class="note" text-anchor="middle">for p_i in pts: 逐点建一张新子图</text>
+<text x="470" y="245" class="op-text" fill="#334155">→</text>
+<rect x="500" y="200" width="180" height="80" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="590.0" y="235.2" class="node-title">variable(x)</text>
+<text x="590.0" y="262.4" class="node-shape">scalar · req_grad</text>
+<rect x="710" y="200" width="180" height="80" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="800.0" y="235.2" class="node-title">variable(t)</text>
+<text x="800.0" y="262.4" class="node-shape">scalar · req_grad</text>
+<text x="695" y="300" class="note" text-anchor="middle">is_leaf = true · grad = 0 · 下一轮 iter 会被重新 variable() 创建</text>
+<text x="910" y="245" class="op-text" fill="#334155">→</text>
+<rect x="940" y="190" width="300" height="100" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="1090" y="220" class="node-title">VarMatrix a</text>
+<text x="1090" y="242" class="node-shape">shape = [1, 2]</text>
+<circle cx="1050" cy="272" r="8" fill="#ffffff" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1050" y="276" class="node-shape" font-size="10">x</text>
+<circle cx="1130" cy="272" r="8" fill="#ffffff" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1130" y="276" class="node-shape" font-size="10">t</text>
+<rect x="1290" y="185" width="460" height="115" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="1520" y="212" class="node-title">TinyFNN({2, 4, 1}).parameters()</text>
+<text x="1520" y="236" class="note" text-anchor="middle">W1 [2, 4] · 8 叶子 + b1 [1, 4] · 4 叶子</text>
+<text x="1520" y="256" class="note" text-anchor="middle">W2 [4, 1] · 4 叶子 + b2 [1, 1] · 1 叶子</text>
+<text x="1520" y="280" class="note-em" text-anchor="middle">合计 17 个 requires_grad=true 的叶子 Node</text>
+<line x1="680" y1="230" x2="710" y2="230" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="890" y1="230" x2="940" y2="230" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="340" width="1740" height="175" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="368" class="phase">Phase B · Forward 建图 G0 · Layer 1</text>
+<text x="50" y="390" class="phase-sub">matmul(a, W1) → [1,4] · rowwise bias add → [1,4] · tanh → [1,4]</text>
+<text x="1740" y="427.5" class="layer-label" transform="rotate(270 1740 427.5)" text-anchor="middle">Layer 1 · matmul+tanh</text>
+<rect x="100" y="400" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="185.0" y="439.6" class="node-title">a</text>
+<text x="185.0" y="470.2" class="node-shape">[1, 2]</text>
+<text x="290" y="460" class="op-text" fill="#334155">matmul</text>
+<rect x="360" y="400" width="170" height="90" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="445.0" y="439.6" class="node-title">W1</text>
+<text x="445.0" y="470.2" class="node-shape">[2, 4]</text>
+<text x="550" y="460" class="op-text" fill="#334155">=</text>
+<rect x="620" y="400" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="705.0" y="439.6" class="node-title">z1_pre</text>
+<text x="705.0" y="470.2" class="node-shape">[1, 4]</text>
+<text x="810" y="460" class="op-text" fill="#334155">+</text>
+<rect x="880" y="400" width="170" height="90" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="965.0" y="439.6" class="node-title">b1</text>
+<text x="965.0" y="470.2" class="node-shape">[1, 4]</text>
+<text x="1070" y="460" class="op-text" fill="#334155">=</text>
+<rect x="1140" y="400" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1225.0" y="439.6" class="node-title">z1</text>
+<text x="1225.0" y="470.2" class="node-shape">[1, 4]</text>
+<text x="1330" y="466" class="op-text" fill="#334155">tanh</text>
+<rect x="1400" y="400" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1485.0" y="439.6" class="node-title">a1</text>
+<text x="1485.0" y="470.2" class="node-shape">[1, 4]</text>
+<line x1="270" y1="445.0" x2="360" y2="445.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="530" y1="445.0" x2="620" y2="445.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="790" y1="445.0" x2="880" y2="445.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1050" y1="445.0" x2="1140" y2="445.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1310" y1="445.0" x2="1400" y2="445.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="515" width="1740" height="175" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="543" class="phase">Phase B · Forward 建图 G0 · Layer 2</text>
+<text x="50" y="565" class="phase-sub">matmul(a1, W2) → [1,1] · rowwise bias add → [1,1] · 无激活 · 取 a(0, 0) 作为标量 Node</text>
+<text x="1740" y="602.5" class="layer-label" transform="rotate(270 1740 602.5)" text-anchor="middle">Layer 2 · matmul (no act)</text>
+<rect x="100" y="575" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="185.0" y="614.6" class="node-title">a1</text>
+<text x="185.0" y="645.2" class="node-shape">[1, 4]</text>
+<text x="290" y="635" class="op-text" fill="#334155">matmul</text>
+<rect x="360" y="575" width="170" height="90" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="445.0" y="614.6" class="node-title">W2</text>
+<text x="445.0" y="645.2" class="node-shape">[4, 1]</text>
+<text x="550" y="635" class="op-text" fill="#334155">=</text>
+<rect x="620" y="575" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="705.0" y="614.6" class="node-title">z2_pre</text>
+<text x="705.0" y="645.2" class="node-shape">[1, 1]</text>
+<text x="810" y="635" class="op-text" fill="#334155">+</text>
+<rect x="880" y="575" width="170" height="90" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="965.0" y="614.6" class="node-title">b2</text>
+<text x="965.0" y="645.2" class="node-shape">[1, 1]</text>
+<text x="1070" y="635" class="op-text" fill="#334155">=</text>
+<rect x="1140" y="575" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1225.0" y="614.6" class="node-title">z2</text>
+<text x="1225.0" y="645.2" class="node-shape">[1, 1]</text>
+<text x="1330" y="633" class="op-text" fill="#334155">a(0,0)</text>
+<rect x="1400" y="575" width="170" height="90" fill="#d1fae5" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1485.0" y="614.6" class="node-title">u(x,t)</text>
+<text x="1485.0" y="645.2" class="node-shape">scalar Node</text>
+<line x1="270" y1="620.0" x2="360" y2="620.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="530" y1="620.0" x2="620" y2="620.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="790" y1="620.0" x2="880" y2="620.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1050" y1="620.0" x2="1140" y2="620.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1310" y1="620.0" x2="1400" y2="620.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1485.0" y1="490" x2="1485.0" y2="520" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<path d="M 1485.0 520 L 1485.0 555 L 185.0 555 L 185.0 575" fill="none" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<path d="M 1090 314 L 1090 365 L 185.0 365 L 185.0 400" fill="none" stroke="#334155" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="710" width="1740" height="500" fill="#fffaf3" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="738" class="phase">Phase C · 嵌套求导建图 · create_graph=true 扩展图 G1 / G2 / G3</text>
+<text x="50" y="760" class="phase-sub">autodiff 原型的精髓：每次调用 grad(output, input, create_graph=true) 都会沿 Node.parents 反向扩展，产生一个新的标量 Node，它自己也可以继续被 grad 调用（高阶）。</text>
+<rect x="60" y="780" width="1680" height="88" fill="#ffffff" stroke="#d8b4fe" stroke-width="2" rx="10"/>
+<text x="72" y="806" class="tier">G0 · 前向图</text>
+<text x="72" y="828" class="note">forward_scalar(x, t) 建立的 Node 图（Phase B 产出）</text>
+<rect x="60" y="880" width="1680" height="88" fill="#fffaf3" stroke="#d8b4fe" stroke-width="2" rx="10"/>
+<text x="72" y="906" class="tier">G1 · 一阶导图</text>
+<text x="72" y="928" class="note">grad(u, t, create_graph=true) / grad(u, x, create_graph=true)</text>
+<rect x="60" y="980" width="1680" height="88" fill="#fff7ed" stroke="#d8b4fe" stroke-width="2" rx="10"/>
+<text x="72" y="1006" class="tier">G2 · 二阶导图</text>
+<text x="72" y="1028" class="note">grad(u_x, x, true) / grad(u_t, t, true) · 在 G1 基础上再次逆拓扑扩展</text>
+<rect x="60" y="1080" width="1680" height="88" fill="#ffedd5" stroke="#d8b4fe" stroke-width="2" rx="10"/>
+<text x="72" y="1106" class="tier">G3 · 三阶导图</text>
+<text x="72" y="1128" class="note">grad(u_xx, x, true) · 仅 KdV 会用到 · 形成最深的导数子图</text>
+<rect x="1400" y="800" width="200" height="50" fill="#d1fae5" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1500.0" y="822.0" class="node-title">u</text>
+<text x="1500.0" y="839.0" class="node-shape">scalar Node</text>
+<rect x="600" y="900" width="240" height="50" fill="#fde68a" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="720.0" y="922.0" class="node-title">u_t = grad(u, t, cg=true)</text>
+<text x="720.0" y="939.0" class="node-shape">scalar Node</text>
+<rect x="900" y="900" width="240" height="50" fill="#fde68a" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1020.0" y="922.0" class="node-title">u_x = grad(u, x, cg=true)</text>
+<text x="1020.0" y="939.0" class="node-shape">scalar Node</text>
+<line x1="1400" y1="825" x2="840" y2="925" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
+<line x1="1400" y1="825" x2="1140" y2="925" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
+<rect x="600" y="1000" width="280" height="50" fill="#fde68a" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="740.0" y="1022.0" class="node-title">u_xx = grad(u_x, x, cg=true)</text>
+<text x="740.0" y="1039.0" class="node-shape">scalar Node</text>
+<rect x="940" y="1000" width="280" height="50" fill="#fde68a" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1080.0" y="1022.0" class="node-title">u_tt = grad(u_t, t, cg=true)</text>
+<text x="1080.0" y="1039.0" class="node-shape">scalar Node</text>
+<line x1="720" y1="950" x2="740" y2="1000" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
+<line x1="1020" y1="950" x2="1080" y2="1000" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
+<rect x="600" y="1100" width="320" height="50" fill="#fde68a" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="760.0" y="1122.0" class="node-title">u_xxx = grad(u_xx, x, cg=true)</text>
+<text x="760.0" y="1139.0" class="node-shape">scalar Node</text>
+<line x1="740" y1="1050" x2="760" y2="1100" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowPurple)"/>
+<rect x="1280" y="890" width="460" height="300" fill="#ffffff" stroke="#7c3aed" stroke-width="2" rx="10" stroke-dasharray="6,4"/>
+<text x="1296" y="916" class="note-purple">嵌套建图的关键机制</text>
+<text x="1296" y="942" class="note">1. grad() 先用 topo_sort(output) 求逆拓扑顺序；</text>
+<text x="1296" y="962" class="note">2. 沿 Node.parents 反向访问，调用每个 Node 的 vjp 回调；</text>
+<text x="1296" y="982" class="note">3. 当 create_graph=true，vjp 返回的</text>
+<text x="1296" y="1002" class="note">   也是新的 Node（而非 constant），</text>
+<text x="1296" y="1022" class="note">   这些新 Node 的 .parents 会再次指回</text>
+<text x="1296" y="1042" class="note">   原始前向图里的 W1/b1/W2/b2 叶子。</text>
+<text x="1296" y="1062" class="note">4. 结果：u_t / u_x / u_xx / u_xxx / u_tt</text>
+<text x="1296" y="1082" class="note">   都是可再次 grad 的标量 Node；</text>
+<text x="1296" y="1102" class="note">   它们的 .parents 形成 G1/G2/G3 子图。</text>
+<text x="1296" y="1122" class="note">5. 对 params 做 backward(loss) 时，</text>
+<text x="1296" y="1142" class="note">   仍然可以把梯度沿整张（G0∪G1∪G2∪G3）</text>
+<text x="1296" y="1162" class="note">   图回传到 17 个叶子参数。</text>
+<rect x="30" y="1230" width="1740" height="400" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1258" class="phase">Phase D · PDE Residual &amp; 多样本 loss 聚合</text>
+<text x="50" y="1280" class="phase-sub">同一份 TinyFNN 可支持 3 种方程（KdV / Sine-Gordon / Allen-Cahn）· 每个 p_i 得到标量 r_i · 跨样本累积得到标量 loss Node</text>
+<rect x="60" y="1300" width="540" height="110" fill="#fed7aa" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="330.0" y="1328" class="node-title">KdV</text>
+<text x="330.0" y="1358" class="op-small" font-family="Courier New,monospace">r = u_t + 6·u·u_x + u_xxx</text>
+<text x="330.0" y="1382" class="note" text-anchor="middle">输入: u, u_t, u_x, u_xxx</text>
+<text x="330.0" y="1400" class="note" text-anchor="middle">scalar Node</text>
+<rect x="630" y="1300" width="540" height="110" fill="#fed7aa" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="900.0" y="1328" class="node-title">Sine-Gordon</text>
+<text x="900.0" y="1358" class="op-small" font-family="Courier New,monospace">r = u_tt − u_xx + sin(u)</text>
+<text x="900.0" y="1382" class="note" text-anchor="middle">输入: u, u_xx, u_tt</text>
+<text x="900.0" y="1400" class="note" text-anchor="middle">scalar Node</text>
+<rect x="1200" y="1300" width="540" height="110" fill="#fed7aa" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="1470.0" y="1328" class="node-title">Allen-Cahn</text>
+<text x="1470.0" y="1358" class="op-small" font-family="Courier New,monospace">r = u_t − 1e-4·u_xx + 5·(u³ − u)</text>
+<text x="1470.0" y="1382" class="note" text-anchor="middle">输入: u, u_t, u_xx</text>
+<text x="1470.0" y="1400" class="note" text-anchor="middle">scalar Node</text>
+<text x="900.0" y="1290" class="note-em" text-anchor="middle">运行时按 EquationKind 选择其中一种公式 · 产生该点的标量 r_i</text>
+<rect x="540" y="1480" width="160" height="80" fill="#fed7aa" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="620.0" y="1515.2" class="node-title">r_i</text>
+<text x="620.0" y="1542.4" class="node-shape">scalar Node</text>
+<text x="720" y="1526" class="op-text" fill="#334155">²</text>
+<rect x="750" y="1480" width="160" height="80" fill="#fed7aa" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="830.0" y="1515.2" class="node-title">r_i²</text>
+<text x="830.0" y="1542.4" class="node-shape">scalar Node</text>
+<text x="940" y="1526" class="op-text" fill="#334155">Σ</text>
+<text x="940" y="1552" class="op-small">for i ∈ pts</text>
+<rect x="980" y="1480" width="180" height="80" fill="#bbf7d0" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1070.0" y="1515.2" class="node-title">Σ r_i²</text>
+<text x="1070.0" y="1542.4" class="node-shape">scalar Node</text>
+<text x="1180" y="1526" class="op-text" fill="#334155">÷ N</text>
+<rect x="1220" y="1480" width="220" height="80" fill="#bbf7d0" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1330.0" y="1515.2" class="node-title">loss = Σ r_i² / N</text>
+<text x="1330.0" y="1542.4" class="node-shape">scalar Node (final)</text>
+<line x1="330.0" y1="1414" x2="620" y2="1476" stroke="#ea580c" stroke-width="2" marker-end="url(#arrowOrange)"/>
+<line x1="900.0" y1="1414" x2="620" y2="1476" stroke="#ea580c" stroke-width="2" marker-end="url(#arrowOrange)"/>
+<line x1="1470.0" y1="1414" x2="620" y2="1476" stroke="#ea580c" stroke-width="2" marker-end="url(#arrowOrange)"/>
+<line x1="700" y1="1520" x2="750" y2="1520" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="910" y1="1520" x2="980" y2="1520" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1160" y1="1520" x2="1220" y2="1520" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<text x="60" y="1500" class="note-purple">⟳ for p_i in pts</text>
+<text x="60" y="1520" class="note">每个点都重复 Phase A → Phase C → r_i</text>
+<text x="60" y="1538" class="note">所有 r_i² 都挂在同一组 17 个叶子参数上</text>
+<text x="60" y="1556" class="note-em">最终 loss 是 1 个标量 Node (可被 backward)</text>
+<rect x="30" y="1650" width="1740" height="580" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1678" class="phase">Phase E · 沿 Node.parents 反传 · zero_grad / backward / sgd_step</text>
+<text x="50" y="1700" class="phase-sub">backward(loss, params) 先 topo_sort(loss) → 逆拓扑 → 每个 Node 的 vjp 回调沿 parents 收集梯度 → 只把结果写回 17 个叶子参数的 Node.grad</text>
+<rect x="60" y="1720" width="230" height="70" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="175.0" y="1750.8" class="node-title">zero_grad(params)</text>
+<text x="175.0" y="1774.6" class="node-shape">17 个叶子 .grad ← 0</text>
+<line x1="290" y1="1755" x2="340" y2="1755" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="340" y="1720" width="160" height="70" fill="#bbf7d0" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="420.0" y="1750.8" class="node-title">loss</text>
+<text x="420.0" y="1774.6" class="node-shape">scalar Node</text>
+<text x="605" y="1750" class="op-small" text-anchor="middle" fill="#ef4444">backward(</text>
+<text x="605" y="1766" class="op-small" text-anchor="middle" fill="#ef4444">loss, params)</text>
+<rect x="680" y="1710" width="270" height="90" fill="#f6f9fc" stroke="#ef4444" stroke-width="2" rx="10" stroke-dasharray="6,4"/>
+<text x="815" y="1740" class="node-title" fill="#ef4444">topo_sort(loss)</text>
+<text x="815" y="1762" class="note" text-anchor="middle">逆拓扑遍历 Node.parents</text>
+<text x="815" y="1782" class="note" text-anchor="middle">(G0 ∪ G1 ∪ G2 ∪ G3)</text>
+<line x1="500" y1="1755" x2="550" y2="1755" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="660" y1="1755" x2="680" y2="1755" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="950" y1="1755" x2="990" y2="1755" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="1000" y="1710" width="740" height="90" fill="#ffffff" stroke="#ef4444" stroke-width="1.5" rx="10" stroke-dasharray="6,4"/>
+<text x="1020" y="1736" class="note-em">与数值法 手工链式 的区别</text>
+<text x="1020" y="1756" class="note">不再分层写 grad_input / grad_weight / grad_bias · 不再显式做 tanh&apos;(Z)</text>
+<text x="1020" y="1774" class="note">每个 Node 都自带 vjp 回调：反传时按其 parents 自动分发上游梯度</text>
+<text x="1020" y="1792" class="note">高阶导也参与反传：G2 / G3 产出的 Node 的梯度会回到 G0 的 17 个叶子</text>
+<rect x="60" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="160.0" y="1869.04" class="node-title">loss</text>
+<text x="160.0" y="1891.48" class="node-shape">scalar</text>
+<rect x="272" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="372.0" y="1869.04" class="node-title">Σ r_i²</text>
+<text x="372.0" y="1891.48" class="node-shape">scalar</text>
+<rect x="484" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="584.0" y="1869.04" class="node-title">residual r_i</text>
+<text x="584.0" y="1891.48" class="node-shape">scalar</text>
+<rect x="696" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="796.0" y="1869.04" class="node-title">{u, u_t, u_x, u_xxx}</text>
+<text x="796.0" y="1891.48" class="node-shape">标量组</text>
+<rect x="908" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="1008.0" y="1869.04" class="node-title">u (z2 · [1,1])</text>
+<text x="1008.0" y="1891.48" class="node-shape">scalar</text>
+<rect x="1120" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="1220.0" y="1869.04" class="node-title">a1 · [1,4]</text>
+<text x="1220.0" y="1891.48" class="node-shape">VarMatrix</text>
+<rect x="1332" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="1432.0" y="1869.04" class="node-title">z1 · [1,4]</text>
+<text x="1432.0" y="1891.48" class="node-shape">VarMatrix</text>
+<rect x="1544" y="1840" width="200" height="66" fill="#fef2f2" stroke="#ef4444" stroke-width="2" rx="10" ry="10"/>
+<text x="1644.0" y="1869.04" class="node-title">a · [1,2]</text>
+<text x="1644.0" y="1891.48" class="node-shape">VarMatrix</text>
+<line x1="272" y1="1873.0" x2="260" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<line x1="484" y1="1873.0" x2="472" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<line x1="696" y1="1873.0" x2="684" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<line x1="908" y1="1873.0" x2="896" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<line x1="1120" y1="1873.0" x2="1108" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<line x1="1332" y1="1873.0" x2="1320" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<line x1="1544" y1="1873.0" x2="1532" y2="1873.0" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<rect x="70" y="1956" width="400" height="86" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="10"/>
+<text x="90" y="1984" class="node-title" text-anchor="start">W1 · [2, 4]</text>
+<text x="450" y="1984" class="op-small" text-anchor="end" fill="#ef4444">→ Node.grad</text>
+<text x="90" y="2008" class="note" text-anchor="start">8 个叶子 Node · 各自 grad 累加</text>
+<circle cx="90" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="120" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="150" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="180" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="210" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="240" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="270" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="300" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<rect x="490" y="1956" width="400" height="86" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="10"/>
+<text x="510" y="1984" class="node-title" text-anchor="start">b1 · [1, 4]</text>
+<text x="870" y="1984" class="op-small" text-anchor="end" fill="#ef4444">→ Node.grad</text>
+<text x="510" y="2008" class="note" text-anchor="start">4 个叶子 Node · 各自 grad 累加</text>
+<circle cx="510" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="540" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="570" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="600" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<rect x="910" y="1956" width="400" height="86" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="10"/>
+<text x="930" y="1984" class="node-title" text-anchor="start">W2 · [4, 1]</text>
+<text x="1290" y="1984" class="op-small" text-anchor="end" fill="#ef4444">→ Node.grad</text>
+<text x="930" y="2008" class="note" text-anchor="start">4 个叶子 Node · 各自 grad 累加</text>
+<circle cx="930" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="960" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="990" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<circle cx="1020" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<rect x="1330" y="1956" width="400" height="86" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="10"/>
+<text x="1350" y="1984" class="node-title" text-anchor="start">b2 · [1, 1]</text>
+<text x="1710" y="1984" class="op-small" text-anchor="end" fill="#ef4444">→ Node.grad</text>
+<text x="1350" y="2008" class="note" text-anchor="start">1 个叶子 Node · grad 累加</text>
+<circle cx="1350" cy="2030" r="6" fill="#ffffff" stroke="#ef4444" stroke-width="1.5"/>
+<path d="M 1644.0 1906 L 1644.0 1946 L 900.0 1946 L 900.0 1952" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+<text x="920.0" y="1942" class="note-em">只对 is_leaf=true 的参数写回 .grad (17 个)</text>
+<rect x="60" y="2056" width="1680" height="62" fill="#e0f2fe" stroke="#1e293b" stroke-width="2" rx="10"/>
+<text x="80" y="2084" class="node-title" text-anchor="start">sgd_step(params, lr, grad_clip)</text>
+<text x="80" y="2108" class="note" text-anchor="start">对每一个叶子参数 Node：grad ← clip(grad, grad_clip) · value ← value − lr · grad · grad ← 0 (在下一轮 zero_grad 前)</text>
+<text x="1720" y="2084" class="op-small" text-anchor="end" fill="#ea580c">更新 17 个叶子的 .value，shape 不变</text>
+<text x="1720" y="2108" class="op-small" text-anchor="end" fill="#ea580c">W1 [2,4] · b1 [1,4] · W2 [4,1] · b2 [1,1]</text>
+<text x="1740" y="2250" class="phase-sub" text-anchor="end">↻ 下一轮 iter：丢弃本轮建好的所有 Node 子图 · 重新 build 叶子 Node · 从 Phase A 开始重走 G0 → G1 → G2 → G3 → residual → loss</text>
+</svg>

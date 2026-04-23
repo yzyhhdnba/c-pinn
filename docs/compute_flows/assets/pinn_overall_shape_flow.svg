@@ -1,0 +1,465 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2420" viewBox="0 0 1800 2420">
+<defs>
+<style>
+.bg { fill: #f8fafc; }
+.title { fill: #0f172a; font: 700 30px "PingFang SC","Microsoft YaHei",sans-serif; }
+.subtitle { fill: #475569; font: 500 15px "PingFang SC","Microsoft YaHei",sans-serif; }
+.phase { fill: #0f172a; font: 700 22px "PingFang SC","Microsoft YaHei",sans-serif; }
+.phase-sub { fill: #64748b; font: 500 14px "PingFang SC","Microsoft YaHei",sans-serif; }
+.node-title { fill: #1e293b; font: 700 16px "Courier New",monospace; text-anchor: middle; }
+.node-shape { fill: #64748b; font: 700 14px "Courier New",monospace; text-anchor: middle; }
+.op-text { fill: #334155; font: 700 20px "Courier New",monospace; text-anchor: middle; }
+.op-small { fill: #334155; font: 700 14px "Courier New",monospace; text-anchor: middle; }
+.layer-label { fill: #94a3b8; font: 700 28px "PingFang SC","Microsoft YaHei",sans-serif; opacity: 0.8; }
+.legend-txt { fill: #334155; font: 600 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+.note { fill: #475569; font: 500 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+.note-em { fill: #b91c1c; font: 700 13px "PingFang SC","Microsoft YaHei",sans-serif; }
+</style>
+<marker id="arrowBlack" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/></marker>
+<marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/></marker>
+<marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/></marker>
+</defs>
+<rect width="100%" height="100%" class="bg"/>
+<text x="40" y="52" class="title">C-PINN 纯 C++ 主训练 · 端到端带 Shape 的层级数据流总图</text>
+<text x="42" y="82" class="subtitle">batch = 64 · 网络 [2, 50, 50, 50, 1] · 激活 tanh · 以 KdV 7 点 stencil 为例 · 覆盖 采样 → 前向 → PDE Residual → 反向 → Adam 更新 全链路</text>
+<rect x="1110" y="16" width="660" height="82" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="8"/>
+<rect x="1126" y="28" width="16" height="16" fill="#dcfce7" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1148" y="41" class="legend-txt">输入 / 输出张量</text>
+<rect x="1296" y="28" width="16" height="16" fill="#fffbeb" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1318" y="41" class="legend-txt">权重 / 偏置 (参数)</text>
+<rect x="1466" y="28" width="16" height="16" fill="#eff6ff" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1488" y="41" class="legend-txt">中间线性特征 Z</text>
+<rect x="1636" y="28" width="16" height="16" fill="#ede9fe" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1658" y="41" class="legend-txt">激活输出 A</text>
+<rect x="1126" y="66" width="16" height="16" fill="#fef3c7" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1148" y="79" class="legend-txt">PDE 导数 / residual</text>
+<rect x="1296" y="66" width="16" height="16" fill="#d1fae5" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1318" y="79" class="legend-txt">loss 标量</text>
+<rect x="1466" y="66" width="16" height="16" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5"/>
+<text x="1488" y="79" class="legend-txt">反向 δ (梯度)</text>
+<rect x="1636" y="66" width="16" height="16" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+<text x="1658" y="79" class="legend-txt">参数梯度 grad_W / grad_b</text>
+<rect x="30" y="120" width="1740" height="220" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="148" class="phase">Phase A · 采样 &amp; 7 点 Stencil 构造</text>
+<text x="50" y="170" class="phase-sub">每 iter 采样一个 [64, 2] 的 (x, t) 批，再围绕中心点按 ±h / ±2h 构造 KdV 所需的 7 个 stencil 点</text>
+<rect x="70" y="200" width="160" height="90" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="150.0" y="239.6" class="node-title">X_sample</text>
+<text x="150.0" y="270.2" class="node-shape">[64, 2]</text>
+<text x="260" y="252" class="op-text" fill="#334155">→</text>
+<rect x="290" y="195" width="200" height="100" fill="#f6f9fc" stroke="#334155" stroke-width="2.5" rx="12"/>
+<text x="390" y="235" class="node-title">build_stencil</text>
+<text x="390" y="260" class="note" text-anchor="middle">中心 (x,t) → 7 个采样点</text>
+<text x="390" y="280" class="note" text-anchor="middle">±h, ±2h · h ≈ 1e-3</text>
+<text x="510" y="252" class="op-text" fill="#334155">→</text>
+<rect x="540" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="622.5" y="230.8" class="node-title">u@(x,t)</text>
+<text x="622.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="622.5" y="288" class="note" text-anchor="middle">中心</text>
+<rect x="717" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="799.5" y="230.8" class="node-title">u@(x+h,t)</text>
+<text x="799.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="799.5" y="288" class="note" text-anchor="middle">空间 +h</text>
+<rect x="894" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="976.5" y="230.8" class="node-title">u@(x-h,t)</text>
+<text x="976.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="976.5" y="288" class="note" text-anchor="middle">空间 -h</text>
+<rect x="1071" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1153.5" y="230.8" class="node-title">u@(x+2h,t)</text>
+<text x="1153.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="1153.5" y="288" class="note" text-anchor="middle">空间 +2h</text>
+<rect x="1248" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1330.5" y="230.8" class="node-title">u@(x-2h,t)</text>
+<text x="1330.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="1330.5" y="288" class="note" text-anchor="middle">空间 -2h</text>
+<rect x="1425" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1507.5" y="230.8" class="node-title">u@(x,t+h)</text>
+<text x="1507.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="1507.5" y="288" class="note" text-anchor="middle">时间 +h</text>
+<rect x="1602" y="200" width="165" height="70" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1684.5" y="230.8" class="node-title">u@(x,t-h)</text>
+<text x="1684.5" y="254.6" class="node-shape">[64, 2]</text>
+<text x="1684.5" y="288" class="note" text-anchor="middle">时间 -h</text>
+<line x1="490" y1="245" x2="540" y2="235" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="360" width="1740" height="170" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="388" class="phase">Phase B · Forward · Layer 1</text>
+<text x="50" y="410" class="phase-sub">Linear(in=[64, 2], out=50) · tanh</text>
+<text x="1740" y="445.0" class="layer-label" transform="rotate(270 1740 445.0)" text-anchor="middle">Layer 1 · Linear + tanh</text>
+<rect x="100" y="415" width="170" height="90" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="185.0" y="454.6" class="node-title">X</text>
+<text x="185.0" y="485.2" class="node-shape">[64, 2]</text>
+<text x="290" y="475" class="op-text" fill="#334155">×</text>
+<rect x="360" y="415" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="445.0" y="454.6" class="node-title">W1</text>
+<text x="445.0" y="485.2" class="node-shape">[2, 50]</text>
+<text x="550" y="475" class="op-text" fill="#334155">=</text>
+<rect x="620" y="415" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="705.0" y="454.6" class="node-title">Z1_pre</text>
+<text x="705.0" y="485.2" class="node-shape">[64, 50]</text>
+<text x="810" y="475" class="op-text" fill="#334155">+</text>
+<rect x="880" y="415" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="965.0" y="454.6" class="node-title">b1</text>
+<text x="965.0" y="485.2" class="node-shape">[1, 50]</text>
+<text x="1070" y="475" class="op-text" fill="#334155">=</text>
+<rect x="1140" y="415" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1225.0" y="454.6" class="node-title">Z1</text>
+<text x="1225.0" y="485.2" class="node-shape">[64, 50]</text>
+<text x="1330" y="481" class="op-text" fill="#334155">tanh</text>
+<rect x="1400" y="415" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1485.0" y="454.6" class="node-title">A1</text>
+<text x="1485.0" y="485.2" class="node-shape">[64, 50]</text>
+<line x1="270" y1="460.0" x2="360" y2="460.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="530" y1="460.0" x2="620" y2="460.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="790" y1="460.0" x2="880" y2="460.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1050" y1="460.0" x2="1140" y2="460.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1310" y1="460.0" x2="1400" y2="460.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="530" width="1740" height="170" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="558" class="phase">Phase B · Forward · Layer 2</text>
+<text x="50" y="580" class="phase-sub">Linear(in=[64, 50], out=50) · tanh</text>
+<text x="1740" y="615.0" class="layer-label" transform="rotate(270 1740 615.0)" text-anchor="middle">Layer 2 · Linear + tanh</text>
+<rect x="100" y="585" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="185.0" y="624.6" class="node-title">A1</text>
+<text x="185.0" y="655.2" class="node-shape">[64, 50]</text>
+<text x="290" y="645" class="op-text" fill="#334155">×</text>
+<rect x="360" y="585" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="445.0" y="624.6" class="node-title">W2</text>
+<text x="445.0" y="655.2" class="node-shape">[50, 50]</text>
+<text x="550" y="645" class="op-text" fill="#334155">=</text>
+<rect x="620" y="585" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="705.0" y="624.6" class="node-title">Z2_pre</text>
+<text x="705.0" y="655.2" class="node-shape">[64, 50]</text>
+<text x="810" y="645" class="op-text" fill="#334155">+</text>
+<rect x="880" y="585" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="965.0" y="624.6" class="node-title">b2</text>
+<text x="965.0" y="655.2" class="node-shape">[1, 50]</text>
+<text x="1070" y="645" class="op-text" fill="#334155">=</text>
+<rect x="1140" y="585" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1225.0" y="624.6" class="node-title">Z2</text>
+<text x="1225.0" y="655.2" class="node-shape">[64, 50]</text>
+<text x="1330" y="651" class="op-text" fill="#334155">tanh</text>
+<rect x="1400" y="585" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1485.0" y="624.6" class="node-title">A2</text>
+<text x="1485.0" y="655.2" class="node-shape">[64, 50]</text>
+<line x1="270" y1="630.0" x2="360" y2="630.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="530" y1="630.0" x2="620" y2="630.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="790" y1="630.0" x2="880" y2="630.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1050" y1="630.0" x2="1140" y2="630.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1310" y1="630.0" x2="1400" y2="630.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="700" width="1740" height="170" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="728" class="phase">Phase B · Forward · Layer 3</text>
+<text x="50" y="750" class="phase-sub">Linear(in=[64, 50], out=50) · tanh</text>
+<text x="1740" y="785.0" class="layer-label" transform="rotate(270 1740 785.0)" text-anchor="middle">Layer 3 · Linear + tanh</text>
+<rect x="100" y="755" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="185.0" y="794.6" class="node-title">A2</text>
+<text x="185.0" y="825.2" class="node-shape">[64, 50]</text>
+<text x="290" y="815" class="op-text" fill="#334155">×</text>
+<rect x="360" y="755" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="445.0" y="794.6" class="node-title">W3</text>
+<text x="445.0" y="825.2" class="node-shape">[50, 50]</text>
+<text x="550" y="815" class="op-text" fill="#334155">=</text>
+<rect x="620" y="755" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="705.0" y="794.6" class="node-title">Z3_pre</text>
+<text x="705.0" y="825.2" class="node-shape">[64, 50]</text>
+<text x="810" y="815" class="op-text" fill="#334155">+</text>
+<rect x="880" y="755" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="965.0" y="794.6" class="node-title">b3</text>
+<text x="965.0" y="825.2" class="node-shape">[1, 50]</text>
+<text x="1070" y="815" class="op-text" fill="#334155">=</text>
+<rect x="1140" y="755" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1225.0" y="794.6" class="node-title">Z3</text>
+<text x="1225.0" y="825.2" class="node-shape">[64, 50]</text>
+<text x="1330" y="821" class="op-text" fill="#334155">tanh</text>
+<rect x="1400" y="755" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1485.0" y="794.6" class="node-title">A3</text>
+<text x="1485.0" y="825.2" class="node-shape">[64, 50]</text>
+<line x1="270" y1="800.0" x2="360" y2="800.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="530" y1="800.0" x2="620" y2="800.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="790" y1="800.0" x2="880" y2="800.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1050" y1="800.0" x2="1140" y2="800.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1310" y1="800.0" x2="1400" y2="800.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="870" width="1740" height="170" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="898" class="phase">Phase B · Forward · Layer 4</text>
+<text x="50" y="920" class="phase-sub">Linear(in=[64, 50], out=1) · 无激活</text>
+<text x="1740" y="955.0" class="layer-label" transform="rotate(270 1740 955.0)" text-anchor="middle">Layer 4 (Output)</text>
+<rect x="100" y="925" width="170" height="90" fill="#ede9fe" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="185.0" y="964.6" class="node-title">A3</text>
+<text x="185.0" y="995.2" class="node-shape">[64, 50]</text>
+<text x="290" y="985" class="op-text" fill="#334155">×</text>
+<rect x="360" y="925" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="445.0" y="964.6" class="node-title">W4</text>
+<text x="445.0" y="995.2" class="node-shape">[50, 1]</text>
+<text x="550" y="985" class="op-text" fill="#334155">=</text>
+<rect x="620" y="925" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="705.0" y="964.6" class="node-title">Z4_pre</text>
+<text x="705.0" y="995.2" class="node-shape">[64, 1]</text>
+<text x="810" y="985" class="op-text" fill="#334155">+</text>
+<rect x="880" y="925" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="965.0" y="964.6" class="node-title">b4</text>
+<text x="965.0" y="995.2" class="node-shape">[1, 1]</text>
+<text x="1070" y="985" class="op-text" fill="#334155">=</text>
+<rect x="1140" y="925" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1225.0" y="964.6" class="node-title">Z4</text>
+<text x="1225.0" y="995.2" class="node-shape">[64, 1]</text>
+<text x="1330" y="985" class="op-text" fill="#334155">→</text>
+<rect x="1400" y="925" width="170" height="90" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1485.0" y="964.6" class="node-title">u</text>
+<text x="1485.0" y="995.2" class="node-shape">[64, 1]</text>
+<line x1="270" y1="970.0" x2="360" y2="970.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="530" y1="970.0" x2="620" y2="970.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="790" y1="970.0" x2="880" y2="970.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1050" y1="970.0" x2="1140" y2="970.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1310" y1="970.0" x2="1400" y2="970.0" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<path d="M 1485.0 505 L 1485.0 545.0 L 185.0 545.0 L 185.0 585" fill="none" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<path d="M 1485.0 675 L 1485.0 715.0 L 185.0 715.0 L 185.0 755" fill="none" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<path d="M 1485.0 845 L 1485.0 885.0 L 185.0 885.0 L 185.0 925" fill="none" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<path d="M 1153.5 300 L 1153.5 354" fill="none" stroke="#334155" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowBlack)"/>
+<text x="1165.5" y="325" class="note">7 个 stencil 均经过 <tspan font-weight="700">同一份 FNN</tspan>（权重共享）</text>
+<rect x="30" y="1060" width="1740" height="320" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1088" class="phase">Phase C · PDE Residual 与 Loss (KdV: u_t + 6·u·u_x + u_xxx = 0)</text>
+<text x="50" y="1110" class="phase-sub">同一个 FNN 对 7 个 stencil 点分别前向 → 得到 7 份标量场 → 由有限差分组装成 u_t / u_x / u_xxx → 残差 R 与标量 loss</text>
+<rect x="70" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="145.0" y="1163.0" class="node-title">u_c</text>
+<text x="145.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="244" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="319.0" y="1163.0" class="node-title">u_x_p</text>
+<text x="319.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="418" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="493.0" y="1163.0" class="node-title">u_x_m</text>
+<text x="493.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="592" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="667.0" y="1163.0" class="node-title">u_x_pp</text>
+<text x="667.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="766" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="841.0" y="1163.0" class="node-title">u_x_mm</text>
+<text x="841.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="940" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1015.0" y="1163.0" class="node-title">u_t_p</text>
+<text x="1015.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="1114" y="1130" width="150" height="75" fill="#dcfce7" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1189.0" y="1163.0" class="node-title">u_t_m</text>
+<text x="1189.0" y="1188.5" class="node-shape">[64, 1]</text>
+<rect x="120" y="1260" width="240" height="85" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="240.0" y="1290" class="node-title">u_t</text>
+<text x="240.0" y="1312" class="node-shape" font-size="12px">= (u_t_p - u_t_m) / (2h)</text>
+<text x="240.0" y="1334" class="node-shape">[64, 1]</text>
+<rect x="390" y="1260" width="240" height="85" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="510.0" y="1290" class="node-title">u_x</text>
+<text x="510.0" y="1312" class="node-shape" font-size="12px">= (u_x_p - u_x_m) / (2h)</text>
+<text x="510.0" y="1334" class="node-shape">[64, 1]</text>
+<rect x="690" y="1260" width="420" height="85" fill="#fef3c7" stroke="#1e293b" stroke-width="2.5" rx="10"/>
+<text x="900.0" y="1290" class="node-title">u_xxx</text>
+<text x="900.0" y="1312" class="node-shape" font-size="12px">= (u_x_pp - 2·u_x_p + 2·u_x_m - u_x_mm) / (2h³)</text>
+<text x="900.0" y="1334" class="node-shape">[64, 1]</text>
+<rect x="1200" y="1260" width="280" height="85" fill="#fef3c7" stroke="#1e293b" stroke-width="3" rx="10"/>
+<text x="1340.0" y="1290" class="node-title">R = u_t + 6·u_c·u_x + u_xxx</text>
+<text x="1340.0" y="1320" class="node-shape">shape = [64, 1]</text>
+<rect x="1510" y="1260" width="240" height="85" fill="#d1fae5" stroke="#1e293b" stroke-width="3" rx="10"/>
+<text x="1630.0" y="1290" class="node-title">loss = mean(R²)</text>
+<text x="1630.0" y="1320" class="node-shape">标量 (scalar)</text>
+<line x1="1015.0" y1="1205" x2="230.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1189.0" y1="1205" x2="250.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="319.0" y1="1205" x2="500.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="493.0" y1="1205" x2="520.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="667.0" y1="1205" x2="840.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="319.0" y1="1205" x2="880.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="493.0" y1="1205" x2="920.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="841.0" y1="1205" x2="960.0" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="360" y1="1302.5" x2="1200" y2="1302.5" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="630" y1="1302.5" x2="1200" y2="1302.5" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1110" y1="1302.5" x2="1200" y2="1302.5" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="145.0" y1="1205" x2="1240" y2="1260" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<line x1="1480" y1="1302.5" x2="1510" y2="1302.5" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="30" y="1400" width="1740" height="90" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1430" class="phase">Phase D · 反向传播 (手工链式法则 · 每个 stencil 点独立调用 Fnn::backward)</text>
+<text x="50" y="1452" class="phase-sub">先由 loss 给出 δ_R = 2R/N · [64,1] → 按 FD 公式 拆分为 7 份 per-stencil grad_output → 对每个 stencil 重放 forward 并调用 net.backward(grad)</text>
+<rect x="70" y="1455" width="160" height="32" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="150.0" y="1469.08" class="node-title">δ_R = 2R/N</text>
+<text x="150.0" y="1479.96" class="node-shape">[64, 1]</text>
+<line x1="230" y1="1470" x2="310" y2="1470" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="330" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="410" y="1476" class="node-shape" fill="#ef4444">δ_u_c · [64, 1]</text>
+<rect x="510" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="590" y="1476" class="node-shape" fill="#ef4444">δ_u_xp · [64, 1]</text>
+<rect x="690" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="770" y="1476" class="node-shape" fill="#ef4444">δ_u_xm · [64, 1]</text>
+<rect x="870" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="950" y="1476" class="node-shape" fill="#ef4444">δ_u_xpp · [64, 1]</text>
+<rect x="1050" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="1130" y="1476" class="node-shape" fill="#ef4444">δ_u_xmm · [64, 1]</text>
+<rect x="1230" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="1310" y="1476" class="node-shape" fill="#ef4444">δ_u_tp · [64, 1]</text>
+<rect x="1410" y="1458" width="160" height="26" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" rx="6"/>
+<text x="1490" y="1476" class="node-shape" fill="#ef4444">δ_u_tm · [64, 1]</text>
+<rect x="30" y="1510" width="1740" height="180" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1538" class="phase">Phase D · Backward · Layer 4</text>
+<text x="50" y="1560" class="phase-sub">grad_input = δ · W4ᵀ    ·    grad_W4 = A_prevᵀ · δ    ·    grad_b4 = sum(δ, dim=0)    ·    后接 ⊙ tanh&apos;(Z) 进入下一层 backward</text>
+<text x="1740" y="1600.0" class="layer-label" transform="rotate(270 1740 1600.0)" text-anchor="middle">Layer 4 backward</text>
+<rect x="70" y="1575" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="155.0" y="1614.6" class="node-title">δ_u</text>
+<text x="155.0" y="1645.2" class="node-shape">[64, 1]</text>
+<text x="250" y="1631" class="op-text" fill="#ef4444">·</text>
+<rect x="310" y="1575" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="395.0" y="1614.6" class="node-title">W4ᵀ</text>
+<text x="395.0" y="1645.2" class="node-shape">[50, 1]</text>
+<text x="490" y="1631" class="op-text" fill="#ef4444">=</text>
+<rect x="550" y="1575" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="635.0" y="1614.6" class="node-title">δ_A3</text>
+<text x="635.0" y="1645.2" class="node-shape">[64, 50]</text>
+<text x="730" y="1631" class="op-text" fill="#ef4444">⊙</text>
+<text x="730" y="1655" class="op-small" fill="#ef4444">tanh&apos;(Z)</text>
+<rect x="790" y="1575" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="875.0" y="1614.6" class="node-title">Z3</text>
+<text x="875.0" y="1645.2" class="node-shape">[64, 50]</text>
+<text x="970" y="1631" class="op-text" fill="#ef4444">=</text>
+<rect x="1030" y="1575" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1115.0" y="1614.6" class="node-title">δ_Z3</text>
+<text x="1115.0" y="1645.2" class="node-shape">[64, 50]</text>
+<line x1="240" y1="1620.0" x2="310" y2="1620.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="480" y1="1620.0" x2="550" y2="1620.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="720" y1="1620.0" x2="790" y2="1620.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="960" y1="1620.0" x2="1030" y2="1620.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="1260" y="1577" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="1600" class="op-small" text-anchor="start">grad_W4</text>
+<text x="1448" y="1600" class="op-small" text-anchor="end">[50, 1]</text>
+<rect x="1260" y="1623" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="1646" class="op-small" text-anchor="start">grad_b4</text>
+<text x="1448" y="1646" class="op-small" text-anchor="end">[1, 1]</text>
+<text x="1360.0" y="1569" class="legend-txt" text-anchor="middle" fill="#ef4444">A_prevᵀ · δ</text>
+<text x="1570" y="1569" class="legend-txt" text-anchor="middle" fill="#ef4444">sum(δ, 0)</text>
+<path d="M 155.0 1669 L 155.0 1680 L 1360.0 1680 L 1360.0 1663" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrowRed)"/>
+<rect x="30" y="1690" width="1740" height="180" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1718" class="phase">Phase D · Backward · Layer 3</text>
+<text x="50" y="1740" class="phase-sub">grad_input = δ · W3ᵀ    ·    grad_W3 = A_prevᵀ · δ    ·    grad_b3 = sum(δ, dim=0)    ·    后接 ⊙ tanh&apos;(Z) 进入下一层 backward</text>
+<text x="1740" y="1780.0" class="layer-label" transform="rotate(270 1740 1780.0)" text-anchor="middle">Layer 3 backward</text>
+<rect x="70" y="1755" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="155.0" y="1794.6" class="node-title">δ_Z3</text>
+<text x="155.0" y="1825.2" class="node-shape">[64, 50]</text>
+<text x="250" y="1811" class="op-text" fill="#ef4444">·</text>
+<rect x="310" y="1755" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="395.0" y="1794.6" class="node-title">W3ᵀ</text>
+<text x="395.0" y="1825.2" class="node-shape">[50, 50]</text>
+<text x="490" y="1811" class="op-text" fill="#ef4444">=</text>
+<rect x="550" y="1755" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="635.0" y="1794.6" class="node-title">δ_A2</text>
+<text x="635.0" y="1825.2" class="node-shape">[64, 50]</text>
+<text x="730" y="1811" class="op-text" fill="#ef4444">⊙</text>
+<text x="730" y="1835" class="op-small" fill="#ef4444">tanh&apos;(Z)</text>
+<rect x="790" y="1755" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="875.0" y="1794.6" class="node-title">Z2</text>
+<text x="875.0" y="1825.2" class="node-shape">[64, 50]</text>
+<text x="970" y="1811" class="op-text" fill="#ef4444">=</text>
+<rect x="1030" y="1755" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1115.0" y="1794.6" class="node-title">δ_Z2</text>
+<text x="1115.0" y="1825.2" class="node-shape">[64, 50]</text>
+<line x1="240" y1="1800.0" x2="310" y2="1800.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="480" y1="1800.0" x2="550" y2="1800.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="720" y1="1800.0" x2="790" y2="1800.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="960" y1="1800.0" x2="1030" y2="1800.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="1260" y="1757" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="1780" class="op-small" text-anchor="start">grad_W3</text>
+<text x="1448" y="1780" class="op-small" text-anchor="end">[50, 50]</text>
+<rect x="1260" y="1803" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="1826" class="op-small" text-anchor="start">grad_b3</text>
+<text x="1448" y="1826" class="op-small" text-anchor="end">[1, 50]</text>
+<text x="1360.0" y="1749" class="legend-txt" text-anchor="middle" fill="#ef4444">A_prevᵀ · δ</text>
+<text x="1570" y="1749" class="legend-txt" text-anchor="middle" fill="#ef4444">sum(δ, 0)</text>
+<path d="M 155.0 1849 L 155.0 1860 L 1360.0 1860 L 1360.0 1843" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrowRed)"/>
+<rect x="30" y="1870" width="1740" height="180" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="1898" class="phase">Phase D · Backward · Layer 2</text>
+<text x="50" y="1920" class="phase-sub">grad_input = δ · W2ᵀ    ·    grad_W2 = A_prevᵀ · δ    ·    grad_b2 = sum(δ, dim=0)    ·    后接 ⊙ tanh&apos;(Z) 进入下一层 backward</text>
+<text x="1740" y="1960.0" class="layer-label" transform="rotate(270 1740 1960.0)" text-anchor="middle">Layer 2 backward</text>
+<rect x="70" y="1935" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="155.0" y="1974.6" class="node-title">δ_Z2</text>
+<text x="155.0" y="2005.2" class="node-shape">[64, 50]</text>
+<text x="250" y="1991" class="op-text" fill="#ef4444">·</text>
+<rect x="310" y="1935" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="395.0" y="1974.6" class="node-title">W2ᵀ</text>
+<text x="395.0" y="2005.2" class="node-shape">[50, 50]</text>
+<text x="490" y="1991" class="op-text" fill="#ef4444">=</text>
+<rect x="550" y="1935" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="635.0" y="1974.6" class="node-title">δ_A1</text>
+<text x="635.0" y="2005.2" class="node-shape">[64, 50]</text>
+<text x="730" y="1991" class="op-text" fill="#ef4444">⊙</text>
+<text x="730" y="2015" class="op-small" fill="#ef4444">tanh&apos;(Z)</text>
+<rect x="790" y="1935" width="170" height="90" fill="#eff6ff" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="875.0" y="1974.6" class="node-title">Z1</text>
+<text x="875.0" y="2005.2" class="node-shape">[64, 50]</text>
+<text x="970" y="1991" class="op-text" fill="#ef4444">=</text>
+<rect x="1030" y="1935" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="1115.0" y="1974.6" class="node-title">δ_Z1</text>
+<text x="1115.0" y="2005.2" class="node-shape">[64, 50]</text>
+<line x1="240" y1="1980.0" x2="310" y2="1980.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="480" y1="1980.0" x2="550" y2="1980.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="720" y1="1980.0" x2="790" y2="1980.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="960" y1="1980.0" x2="1030" y2="1980.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="1260" y="1937" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="1960" class="op-small" text-anchor="start">grad_W2</text>
+<text x="1448" y="1960" class="op-small" text-anchor="end">[50, 50]</text>
+<rect x="1260" y="1983" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="2006" class="op-small" text-anchor="start">grad_b2</text>
+<text x="1448" y="2006" class="op-small" text-anchor="end">[1, 50]</text>
+<text x="1360.0" y="1929" class="legend-txt" text-anchor="middle" fill="#ef4444">A_prevᵀ · δ</text>
+<text x="1570" y="1929" class="legend-txt" text-anchor="middle" fill="#ef4444">sum(δ, 0)</text>
+<path d="M 155.0 2029 L 155.0 2040 L 1360.0 2040 L 1360.0 2023" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrowRed)"/>
+<rect x="30" y="2050" width="1740" height="180" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="2078" class="phase">Phase D · Backward · Layer 1</text>
+<text x="50" y="2100" class="phase-sub">grad_input = δ · W1ᵀ    ·    grad_W1 = A_prevᵀ · δ    ·    grad_b1 = sum(δ, dim=0)    ·    反向终点 = δ_X</text>
+<text x="1740" y="2140.0" class="layer-label" transform="rotate(270 1740 2140.0)" text-anchor="middle">Layer 1 backward</text>
+<rect x="70" y="2115" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="155.0" y="2154.6" class="node-title">δ_Z1</text>
+<text x="155.0" y="2185.2" class="node-shape">[64, 50]</text>
+<text x="250" y="2171" class="op-text" fill="#ef4444">·</text>
+<rect x="310" y="2115" width="170" height="90" fill="#fffbeb" stroke="#1e293b" stroke-width="2.5" rx="10" ry="10"/>
+<text x="395.0" y="2154.6" class="node-title">W1ᵀ</text>
+<text x="395.0" y="2185.2" class="node-shape">[2, 50]</text>
+<text x="490" y="2171" class="op-text" fill="#ef4444">=</text>
+<rect x="550" y="2115" width="170" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="10" ry="10"/>
+<text x="635.0" y="2154.6" class="node-title">δ_X</text>
+<text x="635.0" y="2185.2" class="node-shape">[64, 2]</text>
+<text x="780" y="2154.0" class="note" text-anchor="start">反向终点</text>
+<text x="780" y="2174.0" class="note">对输入 (x,t) 的梯度</text>
+<text x="730" y="2171" class="op-text" fill="#ef4444">≡</text>
+<line x1="240" y1="2160.0" x2="310" y2="2160.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="480" y1="2160.0" x2="550" y2="2160.0" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="1260" y="2117" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="2140" class="op-small" text-anchor="start">grad_W1</text>
+<text x="1448" y="2140" class="op-small" text-anchor="end">[2, 50]</text>
+<rect x="1260" y="2163" width="200" height="36" fill="#fee2e2" stroke="#ef4444" stroke-width="2" rx="6"/>
+<text x="1272" y="2186" class="op-small" text-anchor="start">grad_b1</text>
+<text x="1448" y="2186" class="op-small" text-anchor="end">[1, 50]</text>
+<text x="1360.0" y="2109" class="legend-txt" text-anchor="middle" fill="#ef4444">A_prevᵀ · δ</text>
+<text x="1570" y="2109" class="legend-txt" text-anchor="middle" fill="#ef4444">sum(δ, 0)</text>
+<path d="M 155.0 2209 L 155.0 2220 L 1360.0 2220 L 1360.0 2203" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrowRed)"/>
+<line x1="1630.0" y1="1345" x2="1630.0" y2="1396" stroke="#ef4444" stroke-width="3" stroke-dasharray="8,4" marker-end="url(#arrowRed)"/>
+<text x="1638.0" y="1372.5" class="note-em">d(loss)/d(R) = 2R / N</text>
+<path d="M 1485.0 1660 L 1485.0 1705.0 L 185.0 1705.0 L 185.0 1750" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 1485.0 1840 L 1485.0 1885.0 L 185.0 1885.0 L 185.0 1930" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 1485.0 2020 L 1485.0 2065.0 L 185.0 2065.0 L 185.0 2110" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<rect x="30" y="2250" width="1740" height="120" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="14"/>
+<text x="50" y="2278" class="phase">Phase E · Adam 参数更新</text>
+<text x="50" y="2300" class="phase-sub">对每一层收集到的 grad_W_l / grad_b_l 进行 Adam (m, v) 累积 → 按 m̂ / (√v̂ + ε) 的步长更新，shape 保持不变</text>
+<rect x="50" y="2305" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="60" y="2324" class="legend-txt" font-family="Courier New,monospace">W1 ← W1 - lr·m̂/(√v̂+ε)</text>
+<text x="440" y="2324" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [2, 50]</text>
+<rect x="474" y="2305" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="484" y="2324" class="legend-txt" font-family="Courier New,monospace">W2 ← W2 - lr·m̂/(√v̂+ε)</text>
+<text x="864" y="2324" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [50, 50]</text>
+<rect x="898" y="2305" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="908" y="2324" class="legend-txt" font-family="Courier New,monospace">W3 ← W3 - lr·m̂/(√v̂+ε)</text>
+<text x="1288" y="2324" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [50, 50]</text>
+<rect x="1322" y="2305" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="1332" y="2324" class="legend-txt" font-family="Courier New,monospace">W4 ← W4 - lr·m̂/(√v̂+ε)</text>
+<text x="1712" y="2324" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [50, 1]</text>
+<rect x="50" y="2343" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="60" y="2362" class="legend-txt" font-family="Courier New,monospace">b1 ← b1 - lr·m̂/(√v̂+ε)</text>
+<text x="440" y="2362" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [1, 50]</text>
+<rect x="474" y="2343" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="484" y="2362" class="legend-txt" font-family="Courier New,monospace">b2 ← b2 - lr·m̂/(√v̂+ε)</text>
+<text x="864" y="2362" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [1, 50]</text>
+<rect x="898" y="2343" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="908" y="2362" class="legend-txt" font-family="Courier New,monospace">b3 ← b3 - lr·m̂/(√v̂+ε)</text>
+<text x="1288" y="2362" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [1, 50]</text>
+<rect x="1322" y="2343" width="400" height="28" fill="#e0f2fe" stroke="#334155" stroke-width="1.5" rx="6"/>
+<text x="1332" y="2362" class="legend-txt" font-family="Courier New,monospace">b4 ← b4 - lr·m̂/(√v̂+ε)</text>
+<text x="1712" y="2362" class="legend-txt" font-family="Courier New,monospace" text-anchor="end">shape [1, 1]</text>
+<text x="1740" y="2386" class="phase-sub" text-anchor="end">↻ 下一轮 iter：回到 Phase A 重新采样 [64, 2] · 权重 shape 保持不变</text>
+</svg>
