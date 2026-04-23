@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .title { fill: #111827; font: 700 30px "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+      .sub { fill: #4b5563; font: 500 15px "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+      .note { fill: #fef2f2; stroke: #ef4444; stroke-width: 2; rx: 12; ry: 12; }
+      .solid { fill: #f3f4f6; stroke: #ef4444; stroke-width: 2; rx: 10; ry: 10; }
+      .wire { fill: #ffffff; stroke: #ef4444; stroke-width: 2; rx: 10; ry: 10; }
+      .label { fill: #111827; font: 700 18px "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+      .small { fill: #374151; font: 500 14px "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+      .line { stroke: #ef4444; stroke-width: 2.5; fill: none; marker-end: url(#arrowRed); }
+    </style>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#ef4444"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="760"/>
+
+  <text class="title" x="34" y="42">autodiff 矩阵原型：反向传播梯度流</text>
+  <text class="sub" x="36" y="68">白底修正版。这里只画 backward(loss, params) 之后的回流方向，不再用过大的箭头。</text>
+
+  <rect class="note" x="984" y="24" width="582" height="72"/>
+  <text class="label" x="1012" y="53">这张图回答的问题只有一个：</text>
+  <text class="small" x="1012" y="79">loss 的梯度如何沿 Node.parents 逆向收集，<tspan x="1012" dy="20">并最终只写回 W1 / b1 / W2 / b2 的 Node.grad</tspan></text>
+
+  <rect class="solid" x="1320" y="188" width="210" height="100"/>
+  <text class="label" x="1402" y="234">loss</text>
+  <text class="small" x="1382" y="260">初始 delta = 1</text>
+
+  <rect class="wire" x="1034" y="186" width="210" height="104"/>
+  <text class="label" x="1072" y="232">residual 图</text>
+  <text class="small" x="1064" y="258">r -&gt; r^2 -&gt; mean(r^2)</text>
+
+  <rect class="wire" x="726" y="186" width="222" height="104"/>
+  <text class="label" x="760" y="232">高阶导节点</text>
+  <text class="small" x="752" y="258">u_t / u_x / u_xx / u_xxx / u_tt</text>
+
+  <rect class="wire" x="440" y="186" width="194" height="104"/>
+  <text class="label" x="488" y="232">输出节点 u</text>
+  <text class="small" x="474" y="258">来自 forward_scalar(x, t)</text>
+
+  <rect class="wire" x="214" y="186" width="142" height="104"/>
+  <text class="label" x="238" y="232">Layer 2</text>
+  <text class="small" x="232" y="258">a1 -&gt; z2 -&gt; u</text>
+
+  <rect class="wire" x="320" y="428" width="142" height="104"/>
+  <text class="label" x="344" y="474">Layer 1</text>
+  <text class="small" x="338" y="500">a -&gt; z1 -&gt; a1</text>
+
+  <rect class="wire" x="520" y="428" width="282" height="104"/>
+  <text class="label" x="604" y="474">参数叶子节点</text>
+  <text class="small" x="544" y="500">W1[2,4], b1[1,4], W2[4,1], b2[1,1]</text>
+
+  <rect class="solid" x="42" y="422" width="220" height="116"/>
+  <text class="label" x="90" y="470">grad 缓冲</text>
+  <text class="small" x="70" y="496">只把叶子参数的梯度写回</text>
+  <text class="small" x="84" y="520">Node.grad</text>
+
+  <line class="line" x1="1320" y1="238" x2="1244" y2="238"/>
+  <line class="line" x1="1034" y1="238" x2="948" y2="238"/>
+  <line class="line" x1="726" y1="238" x2="634" y2="238"/>
+  <line class="line" x1="440" y1="238" x2="356" y2="238"/>
+  <path class="line" d="M 391 290 L 391 428"/>
+
+  <path class="line" d="M 1138 292 L 1138 350 L 838 350 L 838 292"/>
+  <text class="small" x="882" y="340">residual 对高阶导节点回流</text>
+
+  <path class="line" d="M 838 292 L 838 346 L 538 346 L 538 292"/>
+  <text class="small" x="566" y="336">高阶导继续回到 u</text>
+
+  <path class="line" d="M 538 292 L 538 388 L 660 388 L 660 428"/>
+  <text class="small" x="610" y="404">u 再把梯度传给参数叶子</text>
+
+  <path class="line" d="M 660 532 L 660 594 L 152 594 L 152 538"/>
+  <text class="small" x="244" y="586">最终只把叶子参数节点的梯度写回 Node.grad</text>
+</svg>

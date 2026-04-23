@@ -5,11 +5,23 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <chrono>
+#include <cstdlib>
+#include <string>
 
 using namespace pinn;
 
 int main() {
     std::cout << "=== Pure C Sine-Gordon Solver (Stencil Framework) ===" << std::endl;
+    using Clock = std::chrono::steady_clock;
+    auto elapsed_ms = [](const Clock::time_point& t0) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+    };
+
+    const bool profile_enabled = []() {
+        const char* v = std::getenv("PINN_PROFILE");
+        return v != nullptr && std::string(v) == "1";
+    }();
 
     // 1. Setup Network
     std::vector<int> layers = {2, 50, 50, 50, 1};
@@ -24,12 +36,26 @@ int main() {
     const int iterations = 1000;
     const int batch_size = 64;
     const double h = 1e-3;  // Finite difference step size
+    const int stencil_points = 5;
+
+    double t_sample_ms = 0.0;
+    double t_stencil_build_ms = 0.0;
+    double t_forward_stencil_ms = 0.0;
+    double t_residual_ms = 0.0;
+    double t_mse_ms = 0.0;
+    double t_grad_prep_ms = 0.0;
+    double t_reforward_ms = 0.0;
+    double t_backward_only_ms = 0.0;
+    double t_optim_ms = 0.0;
 
     for (int iter = 0; iter < iterations; ++iter) {
         optimizer.zero_grad();
 
         // Sample batch (x, t) in domain [0, 1] x [0, 1]
+        Clock::time_point t0;
+        if (profile_enabled) t0 = Clock::now();
         auto x_t = core::Tensor::rand_uniform({batch_size, 2});
+        if (profile_enabled) t_sample_ms += elapsed_ms(t0);
 
         // ============================================================
         // Define stencil points for Sine-Gordon: u_tt - u_xx + sin(u) = 0
@@ -39,6 +65,7 @@ int main() {
         // ============================================================
 
         // Build stencil points: [center, x+h, x-h, t+h, t-h]
+        if (profile_enabled) t0 = Clock::now();
         std::vector<StencilPoint> stencils;
 
         // Center point (x, t)
@@ -63,9 +90,12 @@ int main() {
         };
         stencils.emplace_back(make_t_shift(h), 0.0);
         stencils.emplace_back(make_t_shift(-h), 0.0);
+        if (profile_enabled) t_stencil_build_ms += elapsed_ms(t0);
 
         // Forward pass through all stencil points
+        if (profile_enabled) t0 = Clock::now();
         forward_all(net, stencils);
+        if (profile_enabled) t_forward_stencil_ms += elapsed_ms(t0);
 
         // Extract outputs by index
         // 0: center, 1: x+h, 2: x-h, 3: t+h, 4: t-h
@@ -82,6 +112,7 @@ int main() {
         double inv_h2 = 1.0 / (h * h);
 
         // u_tt ~ (u(t+h) - 2u(t) + u(t-h)) / h^2
+        if (profile_enabled) t0 = Clock::now();
         auto u_tt = (u_t_p - u_c * 2.0 + u_t_m) * inv_h2;
 
         // u_xx ~ (u(x+h) - 2u(x) + u(x-h)) / h^2
@@ -89,8 +120,11 @@ int main() {
 
         // Residual: u_tt - u_xx + sin(u)
         auto R = u_tt - u_xx + u_c.sin();
+        if (profile_enabled) t_residual_ms += elapsed_ms(t0);
 
+        if (profile_enabled) t0 = Clock::now();
         auto loss = R.pow(2.0).mean_all();
+        if (profile_enabled) t_mse_ms += elapsed_ms(t0);
 
         if (iter % 100 == 0) {
             std::cout << "Iter " << iter << " Loss: " << loss.item<double>() << std::endl;
@@ -102,6 +136,7 @@ int main() {
         // ============================================================
 
         double N = static_cast<double>(batch_size);
+        if (profile_enabled) t0 = Clock::now();
         auto dL_dR = R * (2.0 / N);
 
         // R = u_tt - u_xx + sin(u_c)
@@ -127,18 +162,64 @@ int main() {
             for (int i = 0; i < u_c.numel(); ++i) out[i] = std::cos(in[i]);
         }
         auto grad_u_c = dL_dR * cos_u_c;
+        if (profile_enabled) t_grad_prep_ms += elapsed_ms(t0);
 
         // ============================================================
         // Backward pass through all stencil points using for loop
         // ============================================================
 
-        net.forward(stencils[0].input); net.backward(grad_u_c);
-        net.forward(stencils[1].input); net.backward(grad_u_xp);
-        net.forward(stencils[2].input); net.backward(grad_u_xm);
-        net.forward(stencils[3].input); net.backward(grad_u_tp);
-        net.forward(stencils[4].input); net.backward(grad_u_tm);
+        auto run_backward_point = [&](const core::Tensor& input, const core::Tensor& grad) {
+            if (!profile_enabled) {
+                net.forward(input);
+                net.backward(grad);
+                return;
+            }
+            const auto tf = Clock::now();
+            net.forward(input);
+            t_reforward_ms += elapsed_ms(tf);
+            const auto tb = Clock::now();
+            net.backward(grad);
+            t_backward_only_ms += elapsed_ms(tb);
+        };
 
+        run_backward_point(stencils[0].input, grad_u_c);
+        run_backward_point(stencils[1].input, grad_u_xp);
+        run_backward_point(stencils[2].input, grad_u_xm);
+        run_backward_point(stencils[3].input, grad_u_tp);
+        run_backward_point(stencils[4].input, grad_u_tm);
+
+        if (profile_enabled) t0 = Clock::now();
         optimizer.step();
+        if (profile_enabled) t_optim_ms += elapsed_ms(t0);
+    }
+
+    if (profile_enabled) {
+        const double t_backward_total_ms = t_reforward_ms + t_backward_only_ms;
+        const double t_profile_total_ms = t_sample_ms + t_stencil_build_ms + t_forward_stencil_ms +
+                                          t_residual_ms + t_mse_ms + t_grad_prep_ms +
+                                          t_backward_total_ms + t_optim_ms;
+        const double denom = static_cast<double>(iterations * stencil_points);
+        const double single_forward_stencil_ms = t_forward_stencil_ms / denom;
+        const double single_reforward_ms = t_reforward_ms / denom;
+        std::cout << "PROFILE_BREAKDOWN "
+                  << "equation=sine_gordon "
+                  << "iterations=" << iterations << " "
+                  << "batch_size=" << batch_size << " "
+                  << "stencil_points=" << stencil_points << " "
+                  << "sample_ms=" << t_sample_ms << " "
+                  << "stencil_build_ms=" << t_stencil_build_ms << " "
+                  << "forward_stencil_ms=" << t_forward_stencil_ms << " "
+                  << "residual_ms=" << t_residual_ms << " "
+                  << "mse_ms=" << t_mse_ms << " "
+                  << "grad_prep_ms=" << t_grad_prep_ms << " "
+                  << "reforward_ms=" << t_reforward_ms << " "
+                  << "backward_only_ms=" << t_backward_only_ms << " "
+                  << "backward_total_ms=" << t_backward_total_ms << " "
+                  << "optimizer_ms=" << t_optim_ms << " "
+                  << "profile_total_ms=" << t_profile_total_ms << " "
+                  << "single_forward_stencil_ms=" << single_forward_stencil_ms << " "
+                  << "single_reforward_ms=" << single_reforward_ms
+                  << std::endl;
     }
 
     std::cout << "Training finished." << std::endl;

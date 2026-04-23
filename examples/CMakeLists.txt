@@ -60,3 +60,13 @@ add_executable(example_pure_c_allen_cahn
 )
 target_link_libraries(example_pure_c_allen_cahn PRIVATE pinn)
 
+add_executable(example_autodiff_nested_graph
+    autodiff_nested_graph.cpp
+)
+target_link_libraries(example_autodiff_nested_graph PRIVATE pinn)
+
+add_executable(example_autodiff_matrix_graph
+    autodiff_matrix_graph.cpp
+)
+target_link_libraries(example_autodiff_matrix_graph PRIVATE pinn)
+

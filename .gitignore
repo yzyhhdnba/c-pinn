@@ -1,6 +1,7 @@
 build/
 sandbox/
 .vscode/
+DAILY_REPORT.md
 
 # macOS / Python temporary files
 .DS_Store
@@ -18,6 +19,7 @@ benchmark/report.md
 benchmark/data_*.csv
 benchmark/*.log
 benchmark/*.txt
+benchmark/autodiff/results/
 
 # Poisson related images
 # Ignore images stored in sandbox/poisson

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="950" viewBox="0 0 1450 950">
+<defs>
+<style>
+.bg { fill: #f8fafc; }
+.title { fill: #0f172a; font: 700 28px "PingFang SC", "Microsoft YaHei", sans-serif; }
+.subtitle { fill: #475569; font: 500 16px "PingFang SC", "Microsoft YaHei", sans-serif; }
+.node-title { fill: #1e293b; font: 700 18px "Courier New", monospace; text-anchor: middle; }
+.node-shape { fill: #64748b; font: 600 15px "Courier New", monospace; text-anchor: middle; }
+.op-text { fill: #334155; font: 700 22px "Courier New", monospace; text-anchor: middle; }
+.layer-label { fill: #94a3b8; font: 700 32px "PingFang SC", "Microsoft YaHei", sans-serif; opacity: 0.8; }
+</style>
+<marker id="arrowBlack" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/></marker>
+<marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/></marker>
+</defs>
+<rect width="100%" height="100%" class="bg" />
+<text x="40" y="50" class="title">PINN: 典型两层感知机 (MLP) 的矩阵维度与梯度回传数据流</text>
+<text x="42" y="80" class="subtitle">全面呈现纯 C++ 前向矩阵计算流，以及基于反向传播(Chain Rule)的特征维度对照与梯度偏导更新路径。</text>
+<rect x="980" y="15" width="400" height="85" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="8" />
+<rect x="1000" y="30" width="16" height="16" fill="#dcfce7" stroke="#1f2937" stroke-width="2" /><text x="1025" y="44" class="subtitle">输入/输出</text>
+<rect x="1180" y="30" width="16" height="16" fill="#fffbeb" stroke="#1f2937" stroke-width="2" /><text x="1205" y="44" class="subtitle">参数 (Weights)</text>
+<rect x="1000" y="65" width="16" height="16" fill="#eff6ff" stroke="#1f2937" stroke-width="2" /><text x="1025" y="79" class="subtitle">中间特征/前向张量</text>
+<rect x="1180" y="65" width="16" height="16" fill="#fef2f2" stroke="#ef4444" stroke-width="2" /><text x="1205" y="79" class="subtitle">反向偏导/梯度 (δ)</text>
+<rect x="25" y="120" width="1380" height="370" fill="#ffffff" stroke="#e2e8f0" stroke-width="3" rx="16" />
+<text x="1370" y="300" class="layer-label" transform="rotate(270 1370 300)" text-anchor="middle">Layer 1 (Hidden)</text>
+<rect x="25" y="520" width="1380" height="390" fill="#f6f9fc" stroke="#cbd5e1" stroke-width="3" rx="16" />
+<text x="1370" y="720" class="layer-label" transform="rotate(270 1370 720)" text-anchor="middle">Layer 2 (Output)</text>
+<rect x="80" y="150" width="120" height="90" fill="#dcfce7" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="140" y="190" class="node-title">X</text><text x="140" y="220" class="node-shape">[N, D]</text>
+<rect x="270" y="150" width="120" height="90" fill="#fffbeb" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="330" y="190" class="node-title">W1</text><text x="330" y="220" class="node-shape">[D, H]</text>
+<rect x="460" y="150" width="120" height="90" fill="#eff6ff" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="520" y="190" class="node-title">Z1_pre</text><text x="520" y="220" class="node-shape">[N, H]</text>
+<rect x="650" y="150" width="120" height="90" fill="#fffbeb" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="710" y="190" class="node-title">b1</text><text x="710" y="220" class="node-shape">[1, H]</text>
+<rect x="840" y="150" width="120" height="90" fill="#eff6ff" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="900" y="190" class="node-title">Z1</text><text x="900" y="220" class="node-shape">[N, H]</text>
+<rect x="1030" y="150" width="120" height="90" fill="#eff6ff" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="1090" y="190" class="node-title">A1</text><text x="1090" y="220" class="node-shape">[N, H]</text>
+<text x="235" y="200" class="op-text">×</text>
+<text x="425" y="200" class="op-text">=</text>
+<text x="615" y="200" class="op-text">+</text>
+<text x="805" y="200" class="op-text">=</text>
+<text x="995" y="200" class="op-text">tanh</text>
+<line x1="960" y1="215" x2="1030" y2="215" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="80" y="320" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="140" y="360" class="node-title">δ_X</text><text x="140" y="390" class="node-shape">[N, D]</text>
+<rect x="270" y="320" width="120" height="90" fill="#fffbeb" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="330" y="360" class="node-title">Grad W1</text><text x="330" y="390" class="node-shape">[D, H]</text>
+<rect x="460" y="320" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="520" y="360" class="node-title">δ_Z1_pre</text><text x="520" y="390" class="node-shape">[N, H]</text>
+<rect x="650" y="320" width="120" height="90" fill="#fffbeb" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="710" y="360" class="node-title">Grad b1</text><text x="710" y="390" class="node-shape">[1, H]</text>
+<rect x="840" y="320" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="900" y="360" class="node-title">δ_Z1</text><text x="900" y="390" class="node-shape">[N, H]</text>
+<rect x="1030" y="320" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="1090" y="360" class="node-title">δ_A1</text><text x="1090" y="390" class="node-shape">[N, H]</text>
+<line x1="1030" y1="365" x2="960" y2="365" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<text x="995" y="355" class="op-text" fill="#ef4444">× tanh'</text>
+<line x1="840" y1="365" x2="770" y2="365" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="460" y1="365" x2="390" y2="365" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 900 410 L 900 435 L 520 435 L 520 410" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 520 410 L 520 460 L 140 460 L 140 410" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 900 240 L 900 300 L 995 300 L 995 345" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrowRed)"/>
+<path d="M 140 240 L 140 290 L 330 290 L 330 320" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrowRed)"/>
+<path d="M 330 240 L 330 310 L 140 310 L 140 320" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrowRed)"/>
+<rect x="80" y="550" width="120" height="90" fill="#eff6ff" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="140" y="590" class="node-title">A1</text><text x="140" y="620" class="node-shape">[N, H]</text>
+<rect x="270" y="550" width="120" height="90" fill="#fffbeb" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="330" y="590" class="node-title">W2</text><text x="330" y="620" class="node-shape">[H, O]</text>
+<rect x="460" y="550" width="120" height="90" fill="#eff6ff" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="520" y="590" class="node-title">Z2_pre</text><text x="520" y="620" class="node-shape">[N, O]</text>
+<rect x="650" y="550" width="120" height="90" fill="#fffbeb" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="710" y="590" class="node-title">b2</text><text x="710" y="620" class="node-shape">[1, O]</text>
+<rect x="840" y="550" width="120" height="90" fill="#eff6ff" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="900" y="590" class="node-title">Z2</text><text x="900" y="620" class="node-shape">[N, O]</text>
+<rect x="1030" y="550" width="120" height="90" fill="#dcfce7" stroke="#1f2937" stroke-width="2.5" rx="8" ry="8" /><text x="1090" y="590" class="node-title">Loss δ</text><text x="1090" y="620" class="node-shape">[N, O]</text>
+<text x="235" y="600" class="op-text">×</text>
+<text x="425" y="600" class="op-text">=</text>
+<text x="615" y="600" class="op-text">+</text>
+<text x="805" y="600" class="op-text">=</text>
+<text x="995" y="600" class="op-text">read</text>
+<line x1="960" y1="615" x2="1030" y2="615" stroke="#334155" stroke-width="3" marker-end="url(#arrowBlack)"/>
+<rect x="80" y="720" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="140" y="760" class="node-title">δ_A1</text><text x="140" y="790" class="node-shape">[N, H]</text>
+<rect x="270" y="720" width="120" height="90" fill="#fffbeb" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="330" y="760" class="node-title">Grad W2</text><text x="330" y="790" class="node-shape">[H, O]</text>
+<rect x="460" y="720" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="520" y="760" class="node-title">δ_Z2_pre</text><text x="520" y="790" class="node-shape">[N, O]</text>
+<rect x="650" y="720" width="120" height="90" fill="#fffbeb" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="710" y="760" class="node-title">Grad b2</text><text x="710" y="790" class="node-shape">[1, O]</text>
+<rect x="840" y="720" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="900" y="760" class="node-title">δ_Z2</text><text x="900" y="790" class="node-shape">[N, O]</text>
+<rect x="1030" y="720" width="120" height="90" fill="#fef2f2" stroke="#ef4444" stroke-width="2.5" rx="8" ry="8" /><text x="1090" y="760" class="node-title">Loss δ</text><text x="1090" y="790" class="node-shape">[N, O]</text>
+<line x1="1030" y1="765" x2="960" y2="765" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="840" y1="765" x2="770" y2="765" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<line x1="460" y1="765" x2="390" y2="765" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 900 810 L 900 835 L 520 835 L 520 810" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 520 810 L 520 860 L 140 860 L 140 810" fill="none" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)"/>
+<path d="M 140 640 L 140 690 L 330 690 L 330 720" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrowRed)"/>
+<path d="M 330 640 L 330 710 L 140 710 L 140 720" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrowRed)"/>
+<path d="M 1150 195 L 1220 195 L 1220 480 L 50 480 L 50 595 L 70 595" fill="none" stroke="#334155" stroke-width="4" marker-end="url(#arrowBlack)"/>
+<path d="M 80 765 L 60 765 L 60 495 L 1200 495 L 1200 365 L 1160 365" fill="none" stroke="#ef4444" stroke-width="4" marker-end="url(#arrowRed)"/>
+<text x="725" y="495" class="subtitle" fill="#1e293b" text-anchor="middle">▼ 前向特征传递至下一层 (Forward flow cascades top-down)</text>
+<text x="725" y="515" class="subtitle" fill="#dc2626" text-anchor="middle">▲ 误差项自下而上回传 (Delta cascades bottom-up)</text>
+</svg>

@@ -11,8 +11,20 @@
 - ✅ **纯 C++17 实现** — 不依赖 Python、TensorFlow、PyTorch（LibTorch 为可选扩展）
 - ✅ **双模编译** — 纯 C++ 模式（零外部 DL 框架）与 LibTorch 混合模式
 - ✅ **有限差分 + 手动反向传播** — 不依赖 Autograd 完成 PINN 训练
+- ✅ **最小自动微分原型** — 新增标量嵌套图与矩阵 `matmul` 原型，用于模拟 `create_graph=true`
 - ✅ **手写 Adam 优化器** — 包含动量、偏差修正、可选权重衰减
-- ✅ **已验证** — KdV、Sine-Gordon、Allen-Cahn 三个非线性 PDE 训练收敛
+- ✅ **分层验证体系** — 解析导数精度、压力测试、多 seed 稳定性、legacy 三方程回归
+
+## 📌 最新进展（2026-04）
+
+- 新增标量嵌套图 AD 示例：`examples/autodiff_nested_graph.cpp`
+- 新增矩阵 AD + `matmul` 示例：`examples/autodiff_matrix_graph.cpp`
+- 新增细致测试脚本：`benchmark/test_autodiff_nested_graph.py`
+- 新增矩阵 AD + legacy 回归脚本：`benchmark/test_autodiff_matrix_graph.py`
+- 新增技术报告：`benchmark/autodiff_nested_graph_tech_report.md`
+
+当前默认训练主路径仍是“有限差分 + 手动反向传播”（`example_pure_c_*`）；
+新增 AD 原型位于 `examples/`，用于机制验证与后续集成设计，不直接替代生产训练路径。
 
 ---
 
@@ -25,6 +37,7 @@
 | **编程语言** | C++17 | C++17 |
 | **外部依赖** | nlohmann_json 仅此一项 | + LibTorch (PyTorch C++ API) |
 | **微分方式** | 有限差分 + 手动反向传播 | LibTorch Autograd |
+| **实验性 AD 原型** | 提供（`examples/autodiff_*`） | N/A |
 | **硬件支持** | CPU (OpenMP 加速) | CPU / CUDA GPU |
 | **部署场景** | 嵌入式、边缘计算、推理 | GPU 训练、研究原型 |
 | **编译产物** | 独立可执行文件 (150K-250K) | 依赖 LibTorch 动态库 |
@@ -292,8 +305,11 @@ sudo apt install cmake nlohmann-json3-dev libomp-dev
 # 编译
 mkdir build && cd build
 cmake .. -DPINN_USE_TORCH=OFF -DCMAKE_BUILD_TYPE=Release
-cmake --build . -j$(nproc)
+cmake --build . -j
 ```
+
+> 如果当前 shell 找不到 `cmake`，可用绝对路径（本仓库已验证）：
+> `/Users/hhd/miniforge3/envs/py310/bin/cmake`
 
 #### 方式 B：LibTorch 模式
 
@@ -319,8 +335,32 @@ cd build
 ./examples/example_pure_c_allen_cahn     # Allen-Cahn 方程
 ./examples/example_pure_c_inference      # 基础推理测试
 
+# 最小 AD 原型（标量嵌套图）
+./examples/example_autodiff_nested_graph
+./examples/example_autodiff_nested_graph 0.5 --json
+
+# 最小 AD 原型（矩阵 + matmul）
+./examples/example_autodiff_matrix_graph --iters 25 --samples 6
+./examples/example_autodiff_matrix_graph --json --equation all --iters 25 --samples 6
+
 # LibTorch 示例（需启用 PINN_USE_TORCH）
 ./examples/example_burgers               # Burgers 方程（使用 Autograd）
+```
+
+### 运行自动化测试
+
+```bash
+# 标量嵌套图细致测试
+python3 benchmark/test_autodiff_nested_graph.py
+
+# 标量嵌套图压力测试（1000 随机点 + 严格阈值）
+python3 benchmark/test_autodiff_nested_graph.py --random-cases 1000 --tol-d1 1e-13 --tol-d2 1e-13 --tol-gap 1e-13
+
+# 矩阵 AD + legacy 三方程回归
+python3 benchmark/test_autodiff_matrix_graph.py
+
+# 矩阵 AD 多 seed 压测（pass_rate 口径）
+python3 benchmark/test_autodiff_matrix_graph.py --stress-seeds 7,17,27,37,47 --stress-iters 80 --stress-samples 16 --stress-min-pass-rate 0.8
 ```
 
 **预期输出**（KdV 方程，1000 次迭代）：
@@ -380,7 +420,15 @@ c-pinn/
 │   ├── pure_c_sine_gordon.cpp # [纯 C++] Sine-Gordon 方程
 │   ├── pure_c_allen_cahn.cpp  # [纯 C++] Allen-Cahn 方程
 │   ├── pure_c_inference.cpp   # [纯 C++] 推理示例
+│   ├── autodiff_nested_graph.cpp # [纯 C++] 标量嵌套图 AD 原型
+│   ├── autodiff_matrix_graph.cpp # [纯 C++] 矩阵 AD + matmul 原型
 │   └── burgers.cpp         # [Torch] Burgers 方程
+├── benchmark/              # 基准与验证
+│   ├── test_autodiff_nested_graph.py
+│   ├── test_autodiff_matrix_graph.py
+│   ├── autodiff_nested_graph_tech_report.md
+│   ├── autodiff_nested_graph_test_report.md
+│   └── autodiff_matrix_graph_test_report.md
 ├── tests/                  # 单元测试
 │   └── tensor_test.cpp
 ├── config/                 # 配置文件
@@ -394,9 +442,11 @@ c-pinn/
 
 ---
 
-## 🔬 验证结果
+## 🔬 验证结果（截至 2026-04）
 
 **测试环境**：Apple M4, 16GB RAM, Apple Clang 17.0.0, Release 模式
+
+### A. Legacy 纯 C++ 三方程收敛
 
 | 方程 | PDE 形式 | 初始损失 | 最终损失 (iter 900) | 实测耗时 |
 |:-----|:--------|:--------|:-------------------|:---------|
@@ -406,7 +456,35 @@ c-pinn/
 
 **训练配置**：网络 [2,50,50,50,1]、batch_size=64、Adam(lr=1e-3)、tanh 激活、h=1e-3、1000 次迭代。
 
+### B. 标量嵌套图 AD 精度与图结构
+
+来源：`benchmark/autodiff_nested_graph_test_results.json`
+
+- 阈值：`tol_d1=1e-13`、`tol_d2=1e-13`、`tol_gap=1e-13`
+- 网格 13 点 + 随机 1000 点全部通过
+- 随机集最大误差：`max_abs_err_d1=2e-15`、`max_abs_err_d2=4e-15`
+- 图性质验证通过：`dy_dx_graph.requires_grad=true` 且 `g1_nodes/g1_edges > g0_nodes/g0_edges`
+
+### C. 矩阵 AD（含 matmul）与多 seed 压测
+
+来源：`benchmark/autodiff_matrix_graph_test_results.json`
+
+- Smoke 配置（`iters=25, samples=6`）下，KdV/Sine-Gordon/Allen-Cahn 的残差 loss 均下降，且 `nan_grad_count=0`
+- 压测配置（`iters=80, samples=16, seeds=[7,17,27,37,47]`）
+    - Allen-Cahn：pass_rate=1.00
+    - KdV：pass_rate=0.80
+    - Sine-Gordon：pass_rate=0.80
+    - 在 `min_pass_rate=0.8` 判定口径下，整体为 PASS
+
 **可执行文件大小**：152K-246K（静态链接 libpinn.a，不含 LibTorch）。
+
+### D. 当前已知限制（AD 原型）
+
+- 矩阵 AD 仍为“标量节点拼矩阵”的机制验证实现，不代表高性能张量引擎。
+- 尚未集成到 `src/nn` + PDE 主训练路径。
+- 报告中已记录两个工程风险：
+    - `tanh` 的 VJP 闭包潜在引用环（长跑内存风险）
+    - `--equation all` 下 seed 报告与 effective seed 偏移需明确
 
 ---
 
@@ -458,7 +536,9 @@ c-pinn/
 - [x] **Phase 4**: 优化器（Adam、L-BFGS）
 - [x] **Phase 5**: 模型持久化（二进制 Checkpoint）
 - [x] **Phase 6**: PINN 求解验证（KdV, Sine-Gordon, Allen-Cahn）
-- [ ] **Phase 7**: 轻量级自动微分引擎（计算图 + 自动反向传播）
+- [x] **Phase 7A**: 轻量级自动微分原型（标量嵌套图 + `create_graph=true` 机制）
+- [x] **Phase 7B**: 矩阵前向原型（含 `matmul`）+ mini PINN 机制验证
+- [ ] **Phase 7C**: 与主训练路径集成（`src/nn` + PDE residual stack）
 - [ ] **Phase 8**: 更多架构（ResNet, U-Net, FNO）
 - [ ] **Phase 9**: GPU 加速（CUDA Kernel / Vulkan Compute）
 - [ ] **Phase 10**: Python 绑定（pybind11）
@@ -469,6 +549,10 @@ c-pinn/
 
 - [docs/pure_c_vs_torch.md](docs/pure_c_vs_torch.md) - 详细技术对比
 - [docs/requirements.md](docs/requirements.md) - 需求文档
+- [benchmark/autodiff_nested_graph_tech_report.md](benchmark/autodiff_nested_graph_tech_report.md) - 嵌套图 AD 技术报告
+- [benchmark/autodiff_nested_graph_test_report.md](benchmark/autodiff_nested_graph_test_report.md) - 标量 AD 细致测试报告
+- [benchmark/autodiff_matrix_graph_test_report.md](benchmark/autodiff_matrix_graph_test_report.md) - 矩阵 AD 与回归报告
+- [AGENTS.md](AGENTS.md) - 当前开发与验证工作流摘要
 - [CLAUDE.md](CLAUDE.md) - AI 开发指南
 
 ---
