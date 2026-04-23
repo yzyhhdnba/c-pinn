@@ -34,3 +34,11 @@ sandbox/poisson/*.svg
 *poisson*.jpeg
 *poisson*.gif
 *poisson*.svg
+
+# Local IDE metadata
+.idea/
+
+# One-off local SVG adjustment/generation scripts
+fix_svg.py
+fix_svg3.py
+generate_svg_v2.py
